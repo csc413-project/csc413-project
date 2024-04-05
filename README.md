@@ -1,1 +1,2 @@
-# csc413-project
+# CSC413 Project
+
