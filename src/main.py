@@ -1,6 +1,7 @@
 import dm_control.suite as suite
 from dm_control.suite.wrappers import pixels
 import numpy as np
+import time
 
 def get_random_action(action_spec):
     minimum, maximum = action_spec.minimum, action_spec.maximum
@@ -17,17 +18,18 @@ def main():
     time_step = env.reset()
     step_type, reward, discount, obs = time_step
     num_episodes = 0
-    while num_episodes < 5:
+    while num_episodes < 1:
         action = get_random_action(action_spec)
         time_step = env.step(action)
-        step_type, reward, discount, next_obs = time_step 
+        step_type, reward, discount, next_obs = time_step
+        print(f"Step Type: {step_type}, Reward: {reward}, Discount: {discount}")
         if time_step.last():
             step_type, reward, discount, next_obs = env.reset()
             num_episodes += 1
         else:
-            data.append((obs, action, reward))
+            data.append((obs["pixels"], action, reward))
         obs = next_obs
-
+    env.close()
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 import torch
 import torch.distributions as td
-import torch.optim as optim
 import torch.nn as nn
+import torch.optim as optim
 
 from agent import AgentModel
 from models import get_feat, get_dist, apply_states
@@ -15,27 +15,32 @@ class Dreamer:
         self.free_nats = ...
         self.kl_beta = ...
 
-        self.model_modules = nn.ModuleList([
-            self.agent.observation_encoder,
-            self.agent.observation_decoder,
-            self.agent.representation,
-            self.agent.transition,
-            self.agent.reward_model,
-        ])
+        self.model_modules = nn.ModuleList(
+            [
+                self.agent.observation_encoder,
+                self.agent.observation_decoder,
+                self.agent.representation,
+                self.agent.transition,
+                self.agent.reward_model,
+            ]
+        )
         self.model_optimizer = optim.Adam(
-            self.model_modules.parameters(), lr=self.model_lr,
+            self.model_modules.parameters(),
+            lr=self.model_lr,
         )
         self.action_optimizer = optim.Adam(
-            self.agent.action_decoder.parameters(), lr=self.action_lr,
+            self.agent.action_decoder.parameters(),
+            lr=self.action_lr,
         )
         self.value_optimizer = optim.Adam(
-            self.agent.value_model.parameters(), lr=self.value_lr,
+            self.agent.value_model.parameters(),
+            lr=self.value_lr,
         )
 
     def update(self, samples):
         """
-        :param samples: (seq_len, batch_size, ...) 
-        :return: 
+        :param samples: (seq_len, batch_size, ...)
+        :return:
         """
         pass
 
@@ -105,7 +110,7 @@ class Dreamer:
         discount_arr = torch.cat([torch.ones_like(discount_arr[:1]), discount_arr[1:]])
         discount = torch.cumprod(discount_arr[:-1], 0)
         actor_loss = -torch.mean(discount * value_estimates)
-        
+
         with torch.no_grad():
             value_features = imagine_features[:-1].detach()
             value_discount = discount.detach()
@@ -113,7 +118,7 @@ class Dreamer:
         value_pred = self.agent.value_model(value_features)
         log_prob = value_pred.log_prob(value_target)
         value_loss = -torch.mean(value_discount * log_prob.unsqueeze(2))
-        
+
         # log
         ...
         return model_loss, actor_loss, value_loss
