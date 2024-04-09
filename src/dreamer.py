@@ -3,17 +3,34 @@ import torch.distributions as td
 import torch.nn as nn
 import torch.optim as optim
 
-from agent import AgentModel
-from models import get_feat, get_dist, apply_states
+from models.agent import AgentModel
+from models.rssm import get_feat, get_dist, apply_states
 from src.utils import FreezeParameters
 
 
 class Dreamer:
 
-    def __init__(self, agent: AgentModel):
+    def __init__(
+        self,
+        agent: AgentModel,
+        model_lr=1e-4,
+        action_lr=1e-4,
+        value_lr=1e-4,
+        discount=0.99,
+        discount_lambda=0.95,
+        horizon=15,
+        free_nats=3,
+        kl_beta=1.0,
+    ):
         self.agent = agent
-        self.free_nats = ...
-        self.kl_beta = ...
+        self.model_lr = model_lr
+        self.action_lr = action_lr
+        self.value_lr = value_lr
+        self.discount = discount
+        self.discount_lambda = discount_lambda
+        self.horizon = horizon
+        self.free_nats = free_nats
+        self.kl_beta = kl_beta
 
         self.model_modules = nn.ModuleList(
             [

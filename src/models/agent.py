@@ -2,16 +2,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models import (
-    DenseModel,
-    ActionDecoder,
-    ObservationDecoder,
-    ObservationEncoder,
-    RSSMState,
-    RSSMRepresentation,
+from .behavior_models import DenseModel, ActionDecoder
+from .observation_models import ObservationEncoder, ObservationDecoder
+from .rssm import (
     RSSMTransition,
-    get_feat,
+    RSSMRepresentation,
     RSSMRollout,
+    get_feat,
+    RSSMState,
 )
 
 
