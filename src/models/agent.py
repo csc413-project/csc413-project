@@ -82,6 +82,7 @@ class AgentModel(nn.Module):
         prev_action: torch.Tensor = None,
         prev_state: RSSMState = None,
     ):
+        observation = observation / 255.0 - 0.5
         state = self.get_state_representation(observation, prev_action, prev_state)
         action, action_dist = self.policy(state)
         value = self.value_model(get_feat(state))

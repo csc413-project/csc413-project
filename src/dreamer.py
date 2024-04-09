@@ -13,7 +13,7 @@ class Dreamer:
     def __init__(
         self,
         agent: AgentModel,
-        model_lr=1e-4,
+        model_lr=6e-4,
         action_lr=1e-4,
         value_lr=1e-4,
         discount=0.99,
@@ -21,6 +21,7 @@ class Dreamer:
         horizon=15,
         free_nats=3,
         kl_beta=1.0,
+        device: str = "cuda",
     ):
         self.agent = agent
         self.model_lr = model_lr
@@ -31,6 +32,7 @@ class Dreamer:
         self.horizon = horizon
         self.free_nats = free_nats
         self.kl_beta = kl_beta
+        self.device = device
 
         self.model_modules = nn.ModuleList(
             [
@@ -95,7 +97,7 @@ class Dreamer:
         obs_embed = self.agent.observation_encoder(observations)
 
         # init prev state
-        prev_state = self.agent.representation.initial_state(batch_size)
+        prev_state = self.agent.representation.initial_state(batch_size, device=self.device)
         # get prior and posterior and initialize stuff
         prior, posterior = self.agent.rollout.rollout_representation(
             seq_len, obs_embed, actions, prev_state
@@ -110,7 +112,7 @@ class Dreamer:
         # TODO: also add pcont
         kl_div = torch.maximum(
             torch.mean(td.kl_divergence(posterior_dist, prior_dist)),
-            torch.tensor(self.free_nats, dtype=torch.float32),
+            torch.tensor(self.free_nats, dtype=torch.float32, device=self.device),
         )  # to prevent penalize small KL divergence
         model_loss = image_loss + reward_loss + self.kl_beta * kl_div
 
