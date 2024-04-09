@@ -40,7 +40,7 @@ class AgentModel(nn.Module):
         self.observation_encoder = ObservationEncoder(obs_shape=image_shape)
         encoder_embed_size = np.prod(self.observation_encoder.embed_shape).item()
         self.observation_decoder = ObservationDecoder(
-            embed_size=stochastic_size + deterministic_size, obs_shape=image_shape
+            feature_size=stochastic_size + deterministic_size, obs_shape=image_shape
         )
         self.action_shape = action_shape
         output_size = np.prod(action_shape).item()

@@ -54,12 +54,28 @@ class Dreamer:
             lr=self.value_lr,
         )
 
-    def update(self, samples):
-        """
-        :param samples: (seq_len, batch_size, ...)
-        :return:
-        """
-        pass
+    def update(
+        self, observations: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor
+    ):
+        # swap batch and seq_len
+        observations = torch.transpose(observations, 0, 1)
+        actions = torch.transpose(actions, 0, 1)
+        rewards = torch.transpose(rewards, 0, 1).unsqueeze(-1)
+
+        self.model_optimizer.zero_grad()
+        self.action_optimizer.zero_grad()
+        self.value_optimizer.zero_grad()
+
+        model_loss, actor_loss, value_loss = self.calculate_loss(
+            observations, actions, rewards
+        )
+        model_loss.backward()
+        actor_loss.backward()
+        value_loss.backward()
+
+        self.model_optimizer.step()
+        self.action_optimizer.step()
+        self.value_optimizer.step()
 
     def calculate_loss(self, observations, actions, rewards):
         """
@@ -92,21 +108,21 @@ class Dreamer:
         reward_pred = self.agent.reward_model(features)
         reward_loss = -torch.mean(reward_pred.log_prob(rewards))
         # TODO: also add pcont
-        kl_div = torch.max(
+        kl_div = torch.maximum(
             torch.mean(td.kl_divergence(posterior_dist, prior_dist)),
-            self.free_nats,  # to prevent penalize small KL divergence
-        )
+            torch.tensor(self.free_nats, dtype=torch.float32),
+        )  # to prevent penalize small KL divergence
         model_loss = image_loss + reward_loss + self.kl_beta * kl_div
 
         # produce a gradient-free posterior for action network
         with torch.no_grad():
             # TODO: handle pcont
             flat_post = apply_states(
-                posterior, lambda x: x.reshape(seq_len + batch_size, -1)
+                posterior, lambda x: x.reshape(seq_len * batch_size, -1)
             )
         with FreezeParameters(self.model_modules):
             imagine_states, _ = self.agent.rollout.rollout_policy(
-                self.horizon, self.agent.policy, posterior
+                self.horizon, self.agent.policy, flat_post
             )  # image_states of shape (horizon, seq_len * b, state_dim)
         imagine_features = get_feat(imagine_states)
 
@@ -138,6 +154,7 @@ class Dreamer:
 
         # log
         ...
+        print(model_loss.item(), actor_loss.item(), value_loss.item())
         return model_loss, actor_loss, value_loss
 
     def compute_value_estimate(

@@ -55,26 +55,35 @@ class ObservationEncoder(nn.Module):
 class ObservationDecoder(nn.Module):
 
     def __init__(
-        self, embed_size: int, obs_shape=(3, 64, 64), depth=32, activation=nn.ReLU
+        self, feature_size: int, obs_shape=(3, 64, 64), depth=32, activation=nn.ReLU
     ):
         super().__init__()
-        self.embed_size = embed_size
+        self.embed_size = feature_size
         self.obs_shape = obs_shape
         self.depth = depth
 
-        self.dense = nn.Linear(in_features=embed_size, out_features=32 * depth)
+        self.dense = nn.Linear(in_features=feature_size, out_features=32 * depth)
 
         self.deconvolutions = nn.Sequential(
             nn.ConvTranspose2d(
-                in_channels=32 * depth, out_channels=4 * depth, kernel_size=5
+                in_channels=32 * depth,
+                out_channels=4 * depth,
+                kernel_size=5,
+                stride=2,
             ),
             activation(),
             nn.ConvTranspose2d(
-                in_channels=4 * depth, out_channels=2 * depth, kernel_size=5
+                in_channels=4 * depth,
+                out_channels=2 * depth,
+                kernel_size=5,
+                stride=2,
             ),
             activation(),
             nn.ConvTranspose2d(
-                in_channels=2 * depth, out_channels=1 * depth, kernel_size=6
+                in_channels=2 * depth,
+                out_channels=1 * depth,
+                kernel_size=6,
+                stride=2,
             ),
             activation(),
             nn.ConvTranspose2d(
@@ -85,11 +94,11 @@ class ObservationDecoder(nn.Module):
             ),
         )
 
-    def forward(self, obs_embed):
-        batch_shape = obs_embed.shape[:-1]
-        x = self.dense(obs_embed)
+    def forward(self, features):
+        batch_shape = features.shape[:-1]
+        x = self.dense(features)
         x = x.view(-1, 32 * self.depth, 1, 1)
         x = self.deconvolutions(x)
-        mean = x.view(*batch_shape, *self.shape)
+        mean = x.view(*batch_shape, *self.obs_shape)
         # each pixel is a Normal distribution with a standard deviation of 1 for simplicity
-        return td.Independent(td.Normal(mean, 1), len(self.shape))
+        return td.Independent(td.Normal(mean, 1), len(self.obs_shape))
