@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -5,72 +7,70 @@ import torch.nn as nn
 from .behavior_models import DenseModel, ActionDecoder
 from .observation_models import ObservationEncoder, ObservationDecoder
 from .rssm import (
-    RSSMTransition,
-    RSSMRepresentation,
-    RSSMRollout,
     get_feat,
     RSSMState,
+    RSSM,
 )
 
 
 class AgentModel(nn.Module):
     def __init__(
         self,
-        action_shape,
+        action_shape: Tuple[int, ...],
+        obs_image_shape=(3, 64, 64),
+        # RSSM parameters
         stochastic_size=30,
         deterministic_size=200,
         hidden_size=200,
-        image_shape=(3, 64, 64),
+        # action decoder parameters
         action_hidden_size=200,
         action_layers=3,
-        action_dist="one_hot",
+        action_dist="tanh_normal",
+        # reward model parameters
         reward_shape=(1,),
         reward_layers=3,
         reward_hidden=300,
+        # value model parameters
         value_shape=(1,),
         value_layers=3,
         value_hidden=200,
-        dtype=torch.float,
+        # pcont model parameters
         use_pcont=False,
         pcont_layers=3,
         pcont_hidden=200,
-        **kwargs,
     ):
         super().__init__()
-        self.observation_encoder = ObservationEncoder(obs_shape=image_shape)
+        feature_size = stochastic_size + deterministic_size
+        # world model
+        self.observation_encoder = ObservationEncoder(obs_shape=obs_image_shape)
         encoder_embed_size = np.prod(self.observation_encoder.embed_shape).item()
         self.observation_decoder = ObservationDecoder(
-            feature_size=stochastic_size + deterministic_size, obs_shape=image_shape
+            feature_size=feature_size, obs_shape=obs_image_shape
         )
-        self.action_shape = action_shape
-        output_size = np.prod(action_shape).item()
-        self.transition = RSSMTransition(
-            output_size, stochastic_size, deterministic_size, hidden_size
-        )
-        self.representation = RSSMRepresentation(
-            self.transition,
+        self.action_size = np.prod(action_shape).item()
+        self.rssm = RSSM(
             encoder_embed_size,
-            output_size,
+            self.action_size,
             stochastic_size,
             deterministic_size,
             hidden_size,
         )
-        self.rollout = RSSMRollout(self.representation, self.transition)
-        feature_size = stochastic_size + deterministic_size
-        self.action_size = output_size
-        self.action_dist = action_dist
-        self.action_decoder = ActionDecoder(
-            output_size, feature_size, action_hidden_size, action_layers, action_dist
-        )
         self.reward_model = DenseModel(
             feature_size, reward_shape, reward_layers, reward_hidden
         )
+        # action decoder
+        self.action_dist = action_dist
+        self.action_decoder = ActionDecoder(
+            self.action_size,
+            feature_size,
+            action_hidden_size,
+            action_layers,
+            action_dist,
+        )
+        # value model
         self.value_model = DenseModel(
             feature_size, value_shape, value_layers, value_hidden
         )
-        self.dtype = dtype
-        self.stochastic_size = stochastic_size
-        self.deterministic_size = deterministic_size
         if use_pcont:
             self.pcont = DenseModel(
                 feature_size, (1,), pcont_layers, pcont_hidden, dist="binary"
@@ -82,7 +82,6 @@ class AgentModel(nn.Module):
         prev_action: torch.Tensor = None,
         prev_state: RSSMState = None,
     ):
-        observation = observation / 255.0 - 0.5
         state = self.get_state_representation(observation, prev_action, prev_state)
         action, action_dist = self.policy(state)
         value = self.value_model(get_feat(state))
@@ -114,7 +113,6 @@ class AgentModel(nn.Module):
         prev_state: RSSMState = None,
     ):
         """
-
         :param observation: size(batch, channels, width, height)
         :param prev_action: size(batch, action_size)
         :param prev_state: RSSMState: size(batch, state_size)
@@ -129,18 +127,9 @@ class AgentModel(nn.Module):
                 dtype=observation.dtype,
             )
         if prev_state is None:
-            prev_state = self.representation.initial_state(
+            prev_state = self.rssm.create_initial_state(
                 prev_action.size(0), device=prev_action.device, dtype=prev_action.dtype
             )
-        _, state = self.representation(obs_embed, prev_action, prev_state)
-        return state
-
-    def get_state_transition(self, prev_action: torch.Tensor, prev_state: RSSMState):
-        """
-
-        :param prev_action: size(batch, action_size)
-        :param prev_state: RSSMState: size(batch, state_size)
-        :return: RSSMState
-        """
-        state = self.transition(prev_action, prev_state)
-        return state
+        prior = self.rssm.get_prior(prev_action, prev_state)
+        posterior = self.rssm.get_posterior(obs_embed, prior)
+        return posterior

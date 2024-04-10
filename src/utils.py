@@ -1,5 +1,6 @@
 from typing import Iterable, Union
 
+import numpy as np
 import torch.nn as nn
 
 
@@ -35,3 +36,16 @@ class FreezeParameters:
                 param.requires_grad = self.original_requires_grad[i]
                 i += 1
         self.original_requires_grad.clear()
+
+
+def denormalize_image(normalized_image: np.ndarray) -> np.ndarray:
+    """
+    Denormalizes a normalized image (i.e. image with pixel values in the range [-0.5, 0.5]) to the range [0, 255].
+
+    Parameters:
+    - normalized_image: A numpy array representing the normalized image.
+
+    Returns:
+    - The denormalized image.
+    """
+    return ((normalized_image + 0.5) * 255).astype(np.uint8)

@@ -1,7 +1,12 @@
+import time
+
+import numpy as np
 import torch
 import torch.distributions as td
 import torch.nn as nn
 import torch.optim as optim
+import wandb
+from PIL import Image
 
 from models.agent import AgentModel
 from models.rssm import get_feat, get_dist, apply_states
@@ -14,8 +19,8 @@ class Dreamer:
         self,
         agent: AgentModel,
         model_lr=6e-4,
-        action_lr=1e-4,
-        value_lr=1e-4,
+        action_lr=8e-5,
+        value_lr=8e-5,
         discount=0.99,
         discount_lambda=0.95,
         horizon=15,
@@ -23,10 +28,7 @@ class Dreamer:
         kl_beta=1.0,
         device: str = "cuda",
     ):
-        self.agent = agent
-        self.model_lr = model_lr
-        self.action_lr = action_lr
-        self.value_lr = value_lr
+        self.agent = agent.to(device)
         self.discount = discount
         self.discount_lambda = discount_lambda
         self.horizon = horizon
@@ -38,23 +40,24 @@ class Dreamer:
             [
                 self.agent.observation_encoder,
                 self.agent.observation_decoder,
-                self.agent.representation,
-                self.agent.transition,
+                self.agent.rssm,
                 self.agent.reward_model,
             ]
         )
         self.model_optimizer = optim.Adam(
             self.model_modules.parameters(),
-            lr=self.model_lr,
+            lr=model_lr,
         )
         self.action_optimizer = optim.Adam(
             self.agent.action_decoder.parameters(),
-            lr=self.action_lr,
+            lr=action_lr,
         )
         self.value_optimizer = optim.Adam(
             self.agent.value_model.parameters(),
-            lr=self.value_lr,
+            lr=value_lr,
         )
+        
+        self.training_steps = 0
 
     def update(
         self, observations: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor
@@ -71,6 +74,7 @@ class Dreamer:
         model_loss, actor_loss, value_loss = self.calculate_loss(
             observations, actions, rewards
         )
+
         model_loss.backward()
         actor_loss.backward()
         value_loss.backward()
@@ -78,6 +82,8 @@ class Dreamer:
         self.model_optimizer.step()
         self.action_optimizer.step()
         self.value_optimizer.step()
+
+        self.training_steps += 1
 
     def calculate_loss(self, observations, actions, rewards):
         """
@@ -89,23 +95,24 @@ class Dreamer:
         :return:
         """
         seq_len, batch_size = observations.shape[:2]
-        img_shape = observations.shape[2:]
-        act_shape = actions.shape[2:]
 
         # normalize obs images to make it center around 0
         observations = observations / 255.0 - 0.5
         obs_embed = self.agent.observation_encoder(observations)
 
         # init prev state
-        prev_state = self.agent.representation.initial_state(batch_size, device=self.device)
+        prev_state = self.agent.rssm.create_initial_state(
+            batch_size, device=self.device
+        )
         # get prior and posterior and initialize stuff
-        prior, posterior = self.agent.rollout.rollout_representation(
+        prior, posterior = self.agent.rssm.observe(
             seq_len, obs_embed, actions, prev_state
         )  # (seq_len, batch_size, state_dim)
         prior_dist, posterior_dist = get_dist(prior), get_dist(posterior)
         features = get_feat(posterior)
 
         image_pred = self.agent.observation_decoder(features)
+
         image_loss = -torch.mean(image_pred.log_prob(observations))
         reward_pred = self.agent.reward_model(features)
         reward_loss = -torch.mean(reward_pred.log_prob(rewards))
@@ -123,7 +130,7 @@ class Dreamer:
                 posterior, lambda x: x.reshape(seq_len * batch_size, -1)
             )
         with FreezeParameters(self.model_modules):
-            imagine_states, _ = self.agent.rollout.rollout_policy(
+            imagine_states, _ = self.agent.rssm.imagine(
                 self.horizon, self.agent.policy, flat_post
             )  # image_states of shape (horizon, seq_len * b, state_dim)
         imagine_features = get_feat(imagine_states)
@@ -154,9 +161,14 @@ class Dreamer:
         log_prob = value_pred.log_prob(value_target)
         value_loss = -torch.mean(value_discount * log_prob.unsqueeze(2))
 
-        # log
-        ...
-        print(model_loss.item(), actor_loss.item(), value_loss.item())
+        wandb.log({
+            "training_steps": self.training_steps,
+            "train/model_loss": image_loss.item(),
+            "train/reward_loss": reward_loss.item(),
+            "train/kl_div": kl_div.item(),
+            "train/actor_loss": actor_loss.item(),
+            "train/value_loss": value_loss.item(),
+        })
         return model_loss, actor_loss, value_loss
 
     def compute_value_estimate(

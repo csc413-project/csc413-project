@@ -85,7 +85,7 @@ class TransitionModel(jit.ScriptModule):
         )
         beliefs[0], prior_states[0], posterior_states[0] = prev_belief, prev_state, prev_state
         # Loop over time sequence
-        for t in range(T - 1):
+        for t in range(T - 1):  
             _state = (
                 prior_states[t] if observations is None else posterior_states[t]
             )  # Select appropriate previous state
