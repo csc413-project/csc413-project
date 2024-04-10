@@ -48,7 +48,7 @@ class DMCEnv:
                 break
         obs = np.transpose(self.render(), (2, 0, 1))
         if self.normalize_obs:
-            obs = obs / 255.0 - 0.5
+            obs = obs.astype(np.float32) / 255.0 - 0.5
         return obs, total_reward, done, info
 
     def _step(self, action):
@@ -67,10 +67,10 @@ class DMCEnv:
         # obs["image"] = self.render()
         # return obs
         self.env.reset()
-        obs = self.render()
+        obs = np.transpose(self.render(), (2, 0, 1))
         if self.normalize_obs:
-            obs = obs / 255.0 - 0.5
-        return np.transpose(obs, (2, 0, 1))
+            obs = obs.astype(np.float32) / 255.0 - 0.5
+        return obs
 
     def render(self):
         return self.env.physics.render(*self.image_size)

@@ -1,16 +1,13 @@
-import time
-
 import numpy as np
 import torch
 import torch.distributions as td
 import torch.nn as nn
 import torch.optim as optim
 import wandb
-from PIL import Image
 
 from models.agent import AgentModel
 from models.rssm import get_feat, get_dist, apply_states
-from src.utils import FreezeParameters
+from src.utils import FreezeParameters, denormalize_image, merge_images_in_two_rows
 
 
 class Dreamer:
@@ -56,7 +53,7 @@ class Dreamer:
             self.agent.value_model.parameters(),
             lr=value_lr,
         )
-        
+
         self.training_steps = 0
 
     def update(
@@ -89,15 +86,13 @@ class Dreamer:
         """
         Note: With observation[0], the agent took actions[0] and get rewards[0].
         Assume they are float32 and on the proper device.
-        :param observations: (seq_len, batch_size, img_shape)
+        :param observations: (seq_len, batch_size, img_shape), normalized to [-0.5, 0.5]
         :param actions: (seq_len, batch_size, act_shape)
         :param rewards: (seq_len, batch_size)
         :return:
         """
         seq_len, batch_size = observations.shape[:2]
 
-        # normalize obs images to make it center around 0
-        observations = observations / 255.0 - 0.5
         obs_embed = self.agent.observation_encoder(observations)
 
         # init prev state
@@ -112,7 +107,6 @@ class Dreamer:
         features = get_feat(posterior)
 
         image_pred = self.agent.observation_decoder(features)
-
         image_loss = -torch.mean(image_pred.log_prob(observations))
         reward_pred = self.agent.reward_model(features)
         reward_loss = -torch.mean(reward_pred.log_prob(rewards))
@@ -161,14 +155,35 @@ class Dreamer:
         log_prob = value_pred.log_prob(value_target)
         value_loss = -torch.mean(value_discount * log_prob.unsqueeze(2))
 
-        wandb.log({
-            "training_steps": self.training_steps,
-            "train/model_loss": image_loss.item(),
-            "train/reward_loss": reward_loss.item(),
-            "train/kl_div": kl_div.item(),
-            "train/actor_loss": actor_loss.item(),
-            "train/value_loss": value_loss.item(),
-        })
+        wandb.log(
+            {
+                "training_steps": self.training_steps,
+                "train/model_loss": image_loss.item(),
+                "train/reward_loss": reward_loss.item(),
+                "train/kl_div": kl_div.item(),
+                "train/actor_loss": actor_loss.item(),
+                "train/value_loss": value_loss.item(),
+            }
+        )
+        # log images
+        if self.training_steps % 100 == 0:
+            # a sequence of images
+            ground_truths = np.transpose(
+                denormalize_image(observations[:, 0].detach().cpu().numpy()),
+                (0, 2, 3, 1),
+            )
+            pred_images = np.transpose(
+                denormalize_image(image_pred.mean[:, 0].detach().cpu().numpy()),
+                (0, 2, 3, 1),
+            )
+            wandb.log(
+                {
+                    "train/reconstruction": wandb.Image(
+                        merge_images_in_two_rows(ground_truths, pred_images)
+                    )
+                }
+            )
+
         return model_loss, actor_loss, value_loss
 
     def compute_value_estimate(

@@ -4,9 +4,9 @@ from typing import Tuple
 
 import numpy as np
 import torch
+import wandb
 from torch.utils.data.dataset import Dataset
 from tqdm import trange
-import wandb
 
 from data import TrajectoryDataset, Collector
 from dreamer import Dreamer
@@ -17,11 +17,13 @@ from models.agent import AgentModel
 @dataclass
 class DreamerConfig:
     # env setting
-    domain_name: str = "acrobot"
+    domain_name: str = "cartpole"
     task_name: str = "swingup"
     obs_image_size: Tuple = (64, 64)
 
-    data_dir: str = "/home/scott/tmp/dreamer/"  # where to store trajectories
+    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/"
+    data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
+    model_dir: str = os.path.join(base_dir, "models")  # where to store models
 
     prefill_episodes = 0  # number of episodes to prefill the dataset
     batch_size: int = 50  # batch size for training
@@ -29,31 +31,18 @@ class DreamerConfig:
     training_steps: int = 100  # number of training steps
     training_device = "cuda"  # training device
 
-    collector_device = "cpu"  # collector device
+    collector_device = "cuda"  # collector device
 
 
-def init_data_dir(config: DreamerConfig):
-    data_dir = config.data_dir
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-    task_path = os.path.join(data_dir, f"{config.domain_name}_{config.task_name}")
-    if not os.path.exists(task_path):
-        os.makedirs(task_path)
-    # find the next available number starting from 0
-    i = 0
-    available_path = os.path.join(task_path, f"{i}")
-    while os.path.exists(available_path):
-        i += 1
-        available_path = os.path.join(task_path, f"{i}")
-    os.makedirs(available_path)
-    config.data_dir = available_path
+def init_dirs(config: DreamerConfig):
+    os.makedirs(config.data_dir, exist_ok=True)
+    os.makedirs(config.model_dir, exist_ok=True)
     return config
 
 
 def main():
     config = DreamerConfig()
-    # config = init_data_dir(config)
-    config.data_dir = "/home/scott/tmp/dreamer/acrobot_swingup/2"
+    config = init_dirs(config)
 
     # wandb.login(key=os.getenv("WANDB_KEY"))
     wandb.init(
@@ -63,6 +52,7 @@ def main():
         entity="scott-reseach",
     )
     wandb.define_metric("env_steps")
+    wandb.define_metric("training_return", step_metric="env_steps")
     wandb.define_metric("training_steps")
     wandb.define_metric("train/*", step_metric="training_steps")
 
@@ -117,6 +107,12 @@ def main():
                 "training_return": sum(data["reward"]),
             }
         )
+
+        if i % 25 == 0:
+            torch.save(
+                dreamer.agent.state_dict(),
+                os.path.join(config.model_dir, f"{total_env_steps}.pt"),
+            )
 
 
 if __name__ == "__main__":

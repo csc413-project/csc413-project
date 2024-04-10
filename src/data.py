@@ -92,8 +92,15 @@ class Collector:
         self.reset_agent(agent)
 
     @torch.no_grad()
-    def collect(self, target_num_episodes: int = 1, target_num_steps: int = -1,
-                obs=None, prev_action=None, prev_state=None, random_action=False):
+    def collect(
+        self,
+        target_num_episodes: int = 1,
+        target_num_steps: int = -1,
+        obs=None,
+        prev_action=None,
+        prev_state=None,
+        random_action=False,
+    ):
         assert (target_num_episodes > 0 or target_num_steps > 0) and (
             target_num_episodes < 0 or target_num_steps < 0
         ), "Only one of num_episodes or num_steps should be greater than 0"
@@ -116,7 +123,7 @@ class Collector:
                 obs_tensor = torch.unsqueeze(
                     torch.tensor(obs.copy(), dtype=torch.float32, device=self.device),
                     0,
-                )
+                )  # assume normalized obs
                 action_tensor, action_dist, value, i_reward, state = agent(
                     obs_tensor, prev_action, prev_state
                 )

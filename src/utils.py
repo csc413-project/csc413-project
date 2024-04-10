@@ -2,6 +2,7 @@ from typing import Iterable, Union
 
 import numpy as np
 import torch.nn as nn
+from PIL import Image
 
 
 class FreezeParameters:
@@ -49,3 +50,29 @@ def denormalize_image(normalized_image: np.ndarray) -> np.ndarray:
     - The denormalized image.
     """
     return ((normalized_image + 0.5) * 255).astype(np.uint8)
+
+
+def merge_images_in_two_rows(images1, images2):
+    """Merge two sequences of images into a single image with two rows."""
+
+    # Ensure the sequences have the same length
+    assert len(images1) == len(images2), "Image sequences must be of the same length"
+
+    # Assuming all images are the same size
+    img_width, img_height, _ = images1[0].shape
+    num_images = len(images1)
+
+    # Create a new blank image with the appropriate size
+    canvas_width = img_width * num_images
+    canvas_height = img_height * 2  # Two rows
+    canvas = np.zeros((canvas_height, canvas_width, 3), dtype=images1[0].dtype)
+
+    # Concatenate images in each row
+    top_row = np.concatenate(images1, axis=1)
+    bottom_row = np.concatenate(images2, axis=1)
+
+    # Place each row in the canvas
+    canvas[:img_height, :, :] = top_row
+    canvas[img_height:2 * img_height, :, :] = bottom_row
+
+    return canvas
