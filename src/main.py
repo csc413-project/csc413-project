@@ -5,35 +5,40 @@ from typing import Tuple
 import numpy as np
 import torch
 import wandb
-from torch.utils.data.dataset import Dataset
 from tqdm import trange
 
-from data import TrajectoryDataset, Collector
+from data import Collector, ExperienceReplayDataset
 from dreamer import Dreamer
 from envs import DMCEnv
 from models.agent import AgentModel
-from utils import denormalize_images
+from utils import denormalize_images, count_env_steps
+
+ENV_SETTINGS = {
+    "cartpole": ["swingup"],
+    "cheetah": ["run"],
+}
 
 
 @dataclass
 class DreamerConfig:
     # env setting
-    domain_name: str = "cartpole"
-    task_name: str = "swingup"
+    domain_name: str = "cheetah"
+    task_name: str = "run"
     obs_image_size: Tuple = (64, 64)
     action_repeats: int = 2
     # general setting
-    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/1/"
+    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/0/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
     # training setting
-    prefill_episodes = 0  # number of episodes to prefill the dataset
+    training_epochs: int = 1000  # number of training episodes
+    prefill_episodes = 5  # number of episodes to prefill the dataset
     batch_size: int = 50  # batch size for training
     batch_length: int = 50  # sequence length of each training batch
     training_steps: int = 100  # number of training steps
     training_device = "cuda"  # training device
     # testing setting
-    test_every: int = 25  # test (and save model) every n episodes
+    test_every: int = 20  # test (and save model) every n episodes
     # collector setting
     collector_device = "cuda"  # collector device
 
@@ -57,6 +62,7 @@ def main():
     wandb.define_metric("training_steps")
     wandb.define_metric("train/*", step_metric="training_steps")
 
+    # init env
     env = DMCEnv(
         config.domain_name,
         config.task_name,
@@ -70,53 +76,57 @@ def main():
         AgentModel(action_shape=action_spec.shape), device=config.training_device
     )
 
-    # prefill dataset with 5 random trajectories
-    total_env_steps = 0
+    # init buffer
+    buffer = ExperienceReplayDataset(
+        config.data_dir,
+        buffer_size=100,
+        max_episode_length=1000 // config.action_repeats,
+        obs_shape=env.observation_space.shape,
+        action_size=np.prod(action_spec.shape).item(),
+        batch_size=config.batch_size,
+        batch_length=config.batch_length,
+        device=config.training_device,
+    )
+
+    # init collectors
     train_collector = Collector(env, dreamer.agent, True, config.collector_device)
-    if config.prefill_episodes > 0:
-        prefill_data, _, (_, total_env_steps) = train_collector.collect(
-            target_num_episodes=config.prefill_episodes, random_action=True
-        )
-        for i, data in enumerate(prefill_data):
-            np.savez_compressed(os.path.join(config.data_dir, f"pre_{i}.npz"), **data)
     test_collector = Collector(env, dreamer.agent, False, config.collector_device)
 
-    for i in trange(1000, desc="Training Epochs"):
-        # train
-        dataset = TrajectoryDataset(config.data_dir, config.batch_length)
-        dataloader = torch.utils.data.DataLoader(
-            dataset, batch_size=config.batch_size, shuffle=True, num_workers=10
+    # prefill dataset with 5 random trajectories, if needed
+    total_env_steps, episodes = count_env_steps(config.data_dir, config.action_repeats)
+    if config.prefill_episodes - episodes > 0:
+        prefill_data, _, (_, env_steps) = train_collector.collect(
+            target_num_episodes=config.prefill_episodes - episodes, random_action=True
         )
-        data_iter = iter(dataloader)
+        total_env_steps += env_steps * config.action_repeats
+        for i, data in enumerate(prefill_data):
+            np.savez_compressed(
+                os.path.join(config.data_dir, f"pre_{i + episodes}.npz"), **data
+            )
+            buffer.add_trajectory(data)
+
+    for i in trange(config.training_epochs, desc="Training Epochs"):
         dreamer.agent.train()
         for _ in trange(config.training_steps, desc="Training Steps"):
-            try:
-                obs, action, reward = next(data_iter)
-            except StopIteration:
-                data_iter = iter(dataloader)
-                obs, action, reward = next(data_iter)
-            obs, action, reward = (
-                obs.to(config.training_device),
-                action.to(config.training_device),
-                reward.to(config.training_device),
-            )
+            obs, action, reward = next(buffer)
             dreamer.update(obs, action, reward)
 
         # collect
         train_collector.reset_agent(dreamer.agent)
         data, _, (_, env_steps) = train_collector.collect(target_num_episodes=1)
-        total_env_steps += env_steps
-        data = data[0]
+        total_env_steps += env_steps * config.action_repeats
+        data = data[0]  # only 1 trajectory
+        buffer.add_trajectory(data)
         np.savez_compressed(os.path.join(config.data_dir, f"{i}.npz"), **data)
         wandb.log(
             {
-                "env_steps": total_env_steps * config.action_repeats,
+                "env_steps": total_env_steps,
                 "agent/training_return": sum(data["reward"]),
             }
         )
 
         # test
-        if i % config.test_every == 0:
+        if i % config.test_every == 0 or i == config.training_epochs - 1:
             print("Testing...")
             torch.save(
                 dreamer.agent.state_dict(),
@@ -129,7 +139,7 @@ def main():
             wandb.log(
                 {
                     "agent/test_return": sum(data["reward"]),
-                    "agent/test_video": wandb.Video(observations, fps=30, format="mp4")
+                    "agent/test_video": wandb.Video(observations, fps=30, format="mp4"),
                 }
             )
 

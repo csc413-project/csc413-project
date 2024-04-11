@@ -123,7 +123,7 @@ class RSSM(nn.Module):
         priors = []
         state = prev_state
         for t in range(steps):
-            prior = self.get_prior(action[t], state)
+            state = self.get_prior(action[t], state)
             priors.append(state)
         return stack_states(priors, dim=0)
 
