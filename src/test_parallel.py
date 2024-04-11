@@ -57,7 +57,8 @@ if __name__ == "__main__":
     start = timeit.default_timer()
     # Run the thing in serial
 
-    env = SequentialDMCEnv(domain_name="cartpole", task_name="swingup", num_envs=num_envs)
+    # You can optionally provide a seed
+    env = SequentialDMCEnv(domain_name="cartpole", task_name="swingup", num_envs=num_envs, seed=0)
 
     # init agent
     agent = AgentModel(action_shape=(1, ))

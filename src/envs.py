@@ -17,8 +17,9 @@ class DMCEnv:
         image_size=(64, 64),
         normalize_obs: bool = True,
         action_repeat: int = 2,
+        seed: int = 0,
     ):
-        self.env = suite.load(domain_name=domain_name, task_name=task_name)
+        self.env = suite.load(domain_name=domain_name, task_name=task_name, task_kwargs={'random': seed})
         self.image_size = image_size
         self.normalize_obs = normalize_obs
         self.action_repeat = action_repeat
@@ -182,8 +183,12 @@ class SequentialDMCEnv:
         normalize_obs: bool = True,
         action_repeat: int = 2,
         num_envs: int = 1,
+        seed: int = 0,
     ):
-        self.envs = [DMCEnv(domain_name, task_name, image_size, normalize_obs, action_repeat) for _ in range(num_envs)]
+        self.envs = []
+        for i in range(num_envs):
+            self.envs.append(DMCEnv(domain_name, task_name, image_size, normalize_obs, action_repeat, seed + i))
+        
         self.image_size = image_size
         self.normalize_obs = normalize_obs
         self.action_repeat = action_repeat
