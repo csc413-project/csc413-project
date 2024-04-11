@@ -8,7 +8,7 @@ from gymnasium.spaces import Box
 from torch.utils.data.dataset import Dataset
 from tqdm import tqdm
 
-from src.envs import DMCEnv
+from src.envs import DMCEnv 
 from src.models.agent import AgentModel
 
 
@@ -84,9 +84,10 @@ def get_random_action(action_spec: Box):
 
 class Collector:
 
-    def __init__(self, env: DMCEnv, agent: AgentModel, device="cpu"):
+    def __init__(self, env: DMCEnv, agent: AgentModel, explore: bool, device="cpu"):
         self.env = env
         self.agent = None
+        self.explore = explore
         self.device = device
 
         self.reset_agent(agent)
@@ -156,3 +157,4 @@ class Collector:
         self.agent = copy.deepcopy(new_agent)
         self.agent = self.agent.to(self.device)
         self.agent.eval()
+        self.agent.explore = self.explore
