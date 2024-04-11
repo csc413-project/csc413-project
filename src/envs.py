@@ -167,3 +167,57 @@ class VectorDMCEnv:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+class SequentialDMCEnv:
+    """
+    Only provides pixel observations.
+    """
+
+    def __init__(
+        self,
+        domain_name: str,
+        task_name: str,
+        image_size=(64, 64),
+        normalize_obs: bool = True,
+        action_repeat: int = 2,
+        num_envs: int = 1,
+    ):
+        self.envs = [DMCEnv(domain_name, task_name, image_size, normalize_obs, action_repeat) for _ in range(num_envs)]
+        self.image_size = image_size
+        self.normalize_obs = normalize_obs
+        self.action_repeat = action_repeat
+        self.num_envs = num_envs
+
+    # These two properties are the same for all environments
+    @property
+    def observation_space(self):
+        return Box(0, 255, (3,) + self.image_size, dtype=np.uint8)
+
+    @property
+    def action_space(self):
+        return self.envs[0].action_space
+
+    def step(self, action):
+        """
+        Action here is a list of actions for each environment
+        """
+        # Step through each environment
+        results = [env.step(a) for env, a in zip(self.envs, action)]
+
+        # Unpack the results
+        # ASSUME THAT ALL THE ENVIRONMENTS WILL END AT THE SAME TIME
+        obs, rewards, dones, infos = zip(*results)
+        obs = np.array(obs)
+        rewards = np.array(rewards)
+        dones = np.array(dones)
+
+        return obs, rewards, dones, infos
+
+    def reset(self):
+        # Reset in all envs
+        return np.array([env.reset() for env in self.envs])
+
+    def render(self):
+        # Render in all envs
+        return np.array([env.render() for env in self.envs])

@@ -189,6 +189,7 @@ class VectorCollector:
 
         if obs is None:
             obs = envs.reset()
+
         num_episodes, num_steps = 0, 0
         pbar = tqdm(desc="Collecting Data", leave=True)
         while num_episodes < target_num_episodes or num_steps < target_num_steps:
@@ -216,6 +217,7 @@ class VectorCollector:
                 next_obs = envs.reset()
                 num_episodes += 1
                 data.append(dict(obs=[], action=[], reward=[]))
+
             else:
                 data[num_episodes]["obs"].append(obs)
                 data[num_episodes]["action"].append(action)
