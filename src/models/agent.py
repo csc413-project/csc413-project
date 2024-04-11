@@ -26,6 +26,13 @@ class AgentModel(nn.Module):
         action_hidden_size=200,
         action_layers=3,
         action_dist="tanh_normal",
+        explore: bool = True,
+        # exploration parameters
+        expl_type="additive_gaussian",
+        train_noise=0.3,
+        eval_noise=0.0,
+        expl_decay=0.0,
+        expl_min=0.0,
         # reward model parameters
         reward_shape=(1,),
         reward_layers=3,
@@ -60,6 +67,7 @@ class AgentModel(nn.Module):
         )
         # action decoder
         self.action_dist = action_dist
+        self.explore = explore
         self.action_decoder = ActionDecoder(
             self.action_size,
             feature_size,
@@ -67,6 +75,12 @@ class AgentModel(nn.Module):
             action_layers,
             action_dist,
         )
+        # exploration
+        self.expl_type = expl_type
+        self.train_noise = train_noise
+        self.eval_noise = eval_noise
+        self.expl_decay = expl_decay
+        self.expl_min = expl_min
         # value model
         self.value_model = DenseModel(
             feature_size, value_shape, value_layers, value_hidden
@@ -84,15 +98,17 @@ class AgentModel(nn.Module):
     ):
         state = self.get_state_representation(observation, prev_action, prev_state)
         action, action_dist = self.policy(state)
-        value = self.value_model(get_feat(state))
-        reward = self.reward_model(get_feat(state))
+        action = self.exploration(action)
+        feature = get_feat(state)
+        value = self.value_model(feature)
+        reward = self.reward_model(feature)
         return action, action_dist, value, reward, state
 
     def policy(self, state: RSSMState):
         feat = get_feat(state)
         action_dist = self.action_decoder(feat)
         if self.action_dist == "tanh_normal":
-            if self.training:  # use agent.train(bool) or agent.eval()
+            if self.explore:
                 action = action_dist.rsample()
             else:
                 action = action_dist.mode()
@@ -105,6 +121,45 @@ class AgentModel(nn.Module):
         else:
             action = action_dist.sample()
         return action, action_dist
+
+    def exploration(self, action: torch.Tensor) -> torch.Tensor:
+        """
+        :param action: action to take, shape (1,) (if categorical), or (action dim,) (if continuous)
+        :return: action of the same shape passed in, augmented with some noise
+        """
+        if self.explore:
+            expl_amount = self.train_noise
+            # TODO: implement decay
+            if self.expl_decay:
+                raise NotImplementedError
+                # expl_amount = expl_amount - self._itr / self.expl_decay
+            # if self.expl_min:
+            #     expl_amount = max(self.expl_min, expl_amount)
+        else:
+            expl_amount = self.eval_noise
+
+        if self.expl_type == "additive_gaussian":  # For continuous actions
+            noise = torch.randn(*action.shape, device=action.device) * expl_amount
+            return torch.clamp(action + noise, -1, 1)
+        raise NotImplementedError(self.expl_type)
+        # TODO: implement other exploration types
+        if self.expl_type == "completely_random":  # For continuous actions
+            if expl_amount == 0:
+                return action
+            else:
+                return (
+                    torch.rand(*action.shape, device=action.device) * 2 - 1
+                )  # scale to [-1, 1]
+        if self.expl_type == "epsilon_greedy":  # For discrete actions
+            action_dim = self.env_model_kwargs["action_shape"][0]
+            if np.random.uniform(0, 1) < expl_amount:
+                index = torch.randint(
+                    0, action_dim, action.shape[:-1], device=action.device
+                )
+                action = torch.zeros_like(action)
+                action[..., index] = 1
+            return action
+        raise NotImplementedError(self.expl_type)
 
     def get_state_representation(
         self,

@@ -1,8 +1,9 @@
-from typing import Iterable, Union
+from typing import Iterable, Union, Dict
 
 import numpy as np
 import torch.nn as nn
 from PIL import Image
+import cv2
 
 
 class FreezeParameters:
@@ -39,7 +40,7 @@ class FreezeParameters:
         self.original_requires_grad.clear()
 
 
-def denormalize_image(normalized_image: np.ndarray) -> np.ndarray:
+def denormalize_images(normalized_images: np.ndarray) -> np.ndarray:
     """
     Denormalizes a normalized image (i.e. image with pixel values in the range [-0.5, 0.5]) to the range [0, 255].
 
@@ -49,7 +50,7 @@ def denormalize_image(normalized_image: np.ndarray) -> np.ndarray:
     Returns:
     - The denormalized image.
     """
-    return ((normalized_image + 0.5) * 255).astype(np.uint8)
+    return ((normalized_images + 0.5) * 255).astype(np.uint8)
 
 
 def merge_images_in_two_rows(images1, images2):
@@ -76,3 +77,32 @@ def merge_images_in_two_rows(images1, images2):
     canvas[img_height:2 * img_height, :, :] = bottom_row
 
     return canvas
+
+
+def record_episode(observations: np.ndarray, video_filename: str):
+    """
+    Record a video from a sequence of observations.
+    :param observations: (T, C, H, W) array of observations.
+    :param video_filename: Filename of the output video.
+    :return: None
+    """
+    observations = denormalize_images(observations)
+    # Extract the shape of observations
+    T, C, H, W = observations.shape
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Example for .mp4 files
+    out = cv2.VideoWriter(video_filename, fourcc, 15.0, (W, H))
+
+    for t in range(T):
+        # Get the t-th frame and reshape it to (H, W, C)
+        frame = observations[t].transpose(1, 2, 0)
+
+        # convert it to BGR
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+        # Write the frame
+        out.write(frame.astype(np.uint8))
+
+    # Release everything when job is finished
+    out.release()
+    cv2.destroyAllWindows()

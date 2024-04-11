@@ -106,6 +106,7 @@ class Collector:
             target_num_episodes < 0 or target_num_steps < 0
         ), "Only one of num_episodes or num_steps should be greater than 0"
         assert self.agent.training is False, "Agent should be in eval mode"
+        assert self.agent.explore is self.explore
 
         env = self.env
         agent = self.agent

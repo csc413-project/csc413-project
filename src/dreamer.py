@@ -7,7 +7,7 @@ import wandb
 
 from models.agent import AgentModel
 from models.rssm import get_feat, get_dist, apply_states
-from src.utils import FreezeParameters, denormalize_image, merge_images_in_two_rows
+from src.utils import FreezeParameters, denormalize_images, merge_images_in_two_rows
 
 
 class Dreamer:
@@ -91,6 +91,7 @@ class Dreamer:
         :param rewards: (seq_len, batch_size)
         :return:
         """
+        assert self.agent.explore is True
         seq_len, batch_size = observations.shape[:2]
 
         obs_embed = self.agent.observation_encoder(observations)
@@ -166,14 +167,14 @@ class Dreamer:
             }
         )
         # log images
-        if self.training_steps % 100 == 0:
+        if self.training_steps % 500 == 0:
             # a sequence of images
             ground_truths = np.transpose(
-                denormalize_image(observations[:, 0].detach().cpu().numpy()),
+                denormalize_images(observations[:, 0].detach().cpu().numpy()),
                 (0, 2, 3, 1),
             )
             pred_images = np.transpose(
-                denormalize_image(image_pred.mean[:, 0].detach().cpu().numpy()),
+                denormalize_images(image_pred.mean[:, 0].detach().cpu().numpy()),
                 (0, 2, 3, 1),
             )
             wandb.log(
