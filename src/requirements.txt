@@ -4,3 +4,4 @@ tqdm
 dm_control
 torch
 gymnasium
+opencv-python
