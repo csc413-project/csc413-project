@@ -2,6 +2,8 @@ import numpy as np
 from dm_control import suite
 from gymnasium.spaces import Box
 
+# For multiprocessing
+from multiprocessing import Process, Pipe
 
 class DMCEnv:
     """
@@ -74,3 +76,94 @@ class DMCEnv:
 
     def render(self):
         return self.env.physics.render(*self.image_size)
+
+
+def worker(conn, env_fn):
+    """
+    Worker process that handles stepping through an environment.
+    """
+    env = env_fn()  # Initialize the environment for this worker.
+    while True:
+        cmd, action = conn.recv()
+        if cmd == 'step':
+            obs, reward, done, info = env.step(action)
+            conn.send((obs, reward, done, info))
+        elif cmd == 'reset':
+            obs = env.reset()
+            conn.send(obs)
+        elif cmd == 'close':
+            conn.close()
+            break
+        else:
+            raise ValueError("Unknown command received by worker.")
+
+
+class VectorDMCEnv:
+    """
+    Creates a bunch of DMCEnvs and runs them in parallel
+
+    You will have to initialize the environment as follows:
+    env_fn = lambda: DMCEnv(domain_name='cheetah', task_name='run')
+    with VectorDMCEnv(env_fn, num_envs=4) as vector_env:
+        # Do stuff with vector_env
+    """
+    def __init__(self, env_fn, num_envs):
+        self.num_envs = num_envs
+        self.env_fns = [env_fn for _ in range(num_envs)]
+        self.parents, self.workers = zip(*[Pipe() for _ in range(num_envs)])
+        self.procs = [
+            Process(target=worker, args=(child, env_fn))
+            for child, env_fn in zip(self.workers, self.env_fns)
+        ]
+        
+        for proc in self.procs:
+            proc.start()
+
+        # Used to get the observation space and action space
+        self.env = env_fn()
+
+    @property
+    def observation_space(self):
+        return self.env.observation_space
+
+    @property
+    def action_space(self):
+        return self.env.action_space
+
+    def step(self, actions):
+        """
+        Steps through all environments in parallel.
+        """
+        for parent, action in zip(self.parents, actions):
+            parent.send(('step', action))
+        results = [parent.recv() for parent in self.parents]
+        obs, rewards, dones, infos = zip(*results)
+        return np.array(obs), np.array(rewards), np.array(dones), infos
+
+    def reset(self):
+        """
+        Resets all environments.
+        """
+        for parent in self.parents:
+            parent.send(('reset', None))
+        observations = [parent.recv() for parent in self.parents]
+        return np.array(observations)
+
+    def close(self):
+        # Send a close signal to each environment process
+        for parent in self.parents:
+            parent.send(('close', None))
+        
+        # Close all parent ends of the pipes
+        for parent in self.parents:
+            parent.close()
+
+        # Wait for all processes to finish
+        for proc in self.procs:
+            proc.join()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
