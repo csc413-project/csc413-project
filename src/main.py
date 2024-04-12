@@ -175,7 +175,7 @@ def main():
             observations = denormalize_images(np.array(data["obs"]))
             wandb.log(
                 {
-                    "agent/test_return": np.mean(np.sum(data["reward"], axis=1)),
+                    "agent/test_return": np.mean(np.sum(data["reward"], axis=0)),
                     "agent/test_video": [
                         wandb.Video(observations[:, j], fps=30, format="mp4")
                         for j in range(config.test_num_envs)
