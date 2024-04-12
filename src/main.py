@@ -13,6 +13,8 @@ from envs import DMCEnv
 from models.agent import AgentModel
 from utils import denormalize_images, count_env_steps
 
+os.putenv("MUJOCO_GL", "osmesa")
+
 ENV_SETTINGS = {
     "cartpole": ["swingup"],
     "cheetah": ["run"],
