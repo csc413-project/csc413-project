@@ -53,19 +53,27 @@ def denormalize_images(normalized_images: np.ndarray) -> np.ndarray:
     return ((normalized_images + 0.5) * 255).astype(np.uint8)
 
 
-def merge_images_in_chunks(images1, images2, chunk_size=10):
+import numpy as np
+
+
+def merge_images_in_chunks(
+    images1, images2, chunk_size=10, separator_height=10, separator_color=(255, 215, 0)
+):
     """
     Merge two sequences of images into a single image, arranging them in chunks. Each chunk
     contains up to `chunk_size` pairs of images from `images1` and `images2`, with each pair
     consisting of one image from `images1` and its corresponding image from `images2`. Images
     from `images1` are placed on the top row and images from `images2` on the bottom row of each
-    chunk. This creates multiple "big" rows if the total number of pairs exceeds `chunk_size`.
+    chunk. A gold-colored separator is added between the chunks. This creates multiple "big" rows
+    if the total number of pairs exceeds `chunk_size`.
 
     Parameters:
     - images1 (list of np.ndarray): The first sequence of images (e.g., ground truths).
     - images2 (list of np.ndarray): The second sequence of images (e.g., reconstructions),
       where each image corresponds to an image in `images1`.
     - chunk_size (int): The maximum number of image pairs per chunk (default is 10).
+    - separator_height (int): The height of the separator between chunks in pixels (default is 10).
+    - separator_color (list): The RGB color of the separator (default is gold).
 
     Returns:
     - np.ndarray: A single image that combines all input images into chunks as described.
@@ -87,9 +95,12 @@ def merge_images_in_chunks(images1, images2, chunk_size=10):
 
     # Calculate canvas size
     canvas_width = img_width * min(len(images1), chunk_size)
-    canvas_height = img_height * 2 * num_chunks  # Two rows per chunk
+    total_height_of_images = img_height * 2 * num_chunks
+    total_height_of_separators = separator_height * (num_chunks - 1)
+    canvas_height = total_height_of_images + total_height_of_separators
     canvas = np.zeros((canvas_height, canvas_width, 3), dtype=images1[0].dtype)
 
+    # Fill the canvas with images and separators
     for i in range(num_chunks):
         # Determine the slice of the current chunk
         start_idx = i * chunk_size
@@ -99,11 +110,19 @@ def merge_images_in_chunks(images1, images2, chunk_size=10):
         top_row = np.concatenate(images1[start_idx:end_idx], axis=1)
         bottom_row = np.concatenate(images2[start_idx:end_idx], axis=1)
 
-        # Correctly place each row in the canvas
-        canvas[i * img_height * 2 : i * img_height * 2 + img_height, :, :] = top_row
-        canvas[i * img_height * 2 + img_height : (i + 1) * img_height * 2, :, :] = (
-            bottom_row
-        )
+        # Calculate starting position for this chunk on canvas
+        start_y = i * (img_height * 2 + separator_height)
+
+        # Place top and bottom row in the canvas
+        canvas[start_y : start_y + img_height, :, :] = top_row
+        canvas[start_y + img_height : start_y + 2 * img_height, :, :] = bottom_row
+
+        # Add a gold separator below this chunk if it's not the last one
+        if i < num_chunks - 1:
+            separator_start = start_y + 2 * img_height
+            canvas[separator_start : separator_start + separator_height, :, :] = (
+                separator_color
+            )
 
     return canvas
 
