@@ -47,11 +47,11 @@ class DenseModel(nn.Module):
             dist_inputs, features.shape[:-1] + self.output_shape
         )
         if self.dist == "normal":
-            return td.independent.Independent(
+            return td.Independent(
                 td.Normal(reshaped_inputs, 1), len(self.output_shape)
             )
         if self.dist == "binary":
-            return td.independent.Independent(
+            return td.Independent(
                 td.Bernoulli(logits=reshaped_inputs), len(self.output_shape)
             )
         raise NotImplementedError(self.dist)
@@ -140,7 +140,6 @@ class ActionDecoder(nn.Module):
 
     def forward(self, state_features):
         x = self.feedforward_model(state_features)
-        dist = None
         if self.dist == "tanh_normal":
             mean, std = torch.chunk(x, 2, -1)
             mean = self.mean_scale * torch.tanh(mean / self.mean_scale)
@@ -149,10 +148,11 @@ class ActionDecoder(nn.Module):
             dist = td.TransformedDistribution(dist, td.TanhTransform())
             dist = td.Independent(dist, 1)
             dist = SampleDist(dist)
+            # it looks like SampleDist methods are never used
         elif self.dist == "one_hot":
-            dist = torch.distributions.OneHotCategorical(logits=x)
+            dist = td.OneHotCategorical(logits=x)
         elif self.dist == "relaxed_one_hot":
-            dist = torch.distributions.RelaxedOneHotCategorical(0.1, logits=x)
+            dist = td.RelaxedOneHotCategorical(0.1, logits=x)
         else:
             raise NotImplementedError(f"{self.dist} not implemented")
         return dist

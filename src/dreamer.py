@@ -73,8 +73,11 @@ class Dreamer:
         )
 
         model_loss.backward()
+        nn.utils.clip_grad_norm_(self.model_modules.parameters(), 100.0)
         actor_loss.backward()
+        nn.utils.clip_grad_norm_(self.agent.action_decoder.parameters(), 100.0)
         value_loss.backward()
+        nn.utils.clip_grad_norm_(self.agent.value_model.parameters(), 100.0)
 
         self.model_optimizer.step()
         self.action_optimizer.step()

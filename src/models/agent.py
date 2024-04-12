@@ -23,8 +23,8 @@ class AgentModel(nn.Module):
         deterministic_size=200,
         hidden_size=200,
         # action decoder parameters
-        action_hidden_size=200,
-        action_layers=3,
+        action_hidden_size=400,
+        action_layers=4,
         action_dist="tanh_normal",
         explore: bool = True,
         # exploration parameters
@@ -35,16 +35,17 @@ class AgentModel(nn.Module):
         expl_min=0.0,
         # reward model parameters
         reward_shape=(1,),
-        reward_layers=3,
-        reward_hidden=300,
+        reward_layers=2,
+        reward_hidden=400,
         # value model parameters
         value_shape=(1,),
         value_layers=3,
-        value_hidden=200,
+        value_hidden=400,
         # pcont model parameters
         use_pcont=False,
         pcont_layers=3,
-        pcont_hidden=200,
+        pcont_hidden=400,
+        pcont_scale=10.0,
     ):
         super().__init__()
         feature_size = stochastic_size + deterministic_size
@@ -143,23 +144,23 @@ class AgentModel(nn.Module):
             return torch.clamp(action + noise, -1, 1)
         raise NotImplementedError(self.expl_type)
         # TODO: implement other exploration types
-        if self.expl_type == "completely_random":  # For continuous actions
-            if expl_amount == 0:
-                return action
-            else:
-                return (
-                    torch.rand(*action.shape, device=action.device) * 2 - 1
-                )  # scale to [-1, 1]
-        if self.expl_type == "epsilon_greedy":  # For discrete actions
-            action_dim = self.env_model_kwargs["action_shape"][0]
-            if np.random.uniform(0, 1) < expl_amount:
-                index = torch.randint(
-                    0, action_dim, action.shape[:-1], device=action.device
-                )
-                action = torch.zeros_like(action)
-                action[..., index] = 1
-            return action
-        raise NotImplementedError(self.expl_type)
+        # if self.expl_type == "completely_random":  # For continuous actions
+        #     if expl_amount == 0:
+        #         return action
+        #     else:
+        #         return (
+        #             torch.rand(*action.shape, device=action.device) * 2 - 1
+        #         )  # scale to [-1, 1]
+        # if self.expl_type == "epsilon_greedy":  # For discrete actions
+        #     action_dim = self.env_model_kwargs["action_shape"][0]
+        #     if np.random.uniform(0, 1) < expl_amount:
+        #         index = torch.randint(
+        #             0, action_dim, action.shape[:-1], device=action.device
+        #         )
+        #         action = torch.zeros_like(action)
+        #         action[..., index] = 1
+        #     return action
+        # raise NotImplementedError(self.expl_type)
 
     def get_state_representation(
         self,

@@ -44,9 +44,9 @@ class RSSM(nn.Module):
         self,
         obs_embed_size,
         action_size,
-        stochastic_size=30,
-        deterministic_size=200,
-        hidden_size=200,
+        stochastic_size=30,  # size of the stochastic state
+        deterministic_size=200,  # size of the deterministic state
+        hidden_size=200,  # size of the hidden state for linear layers
         activation=nn.ELU,
         distribution=td.Normal,
     ):
@@ -66,7 +66,7 @@ class RSSM(nn.Module):
             self.activation(),
         )
         self.stochastic_prior_model = nn.Sequential(
-            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.Linear(self.deter_size, self.hidden_size),
             self.activation(),
             nn.Linear(self.hidden_size, 2 * self.stoch_size),
         )
