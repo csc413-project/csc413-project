@@ -1,9 +1,10 @@
 import copy
 import os
-from typing import Dict
+from typing import Dict, Tuple
 
 import numpy as np
 import torch
+import wandb
 from gymnasium.spaces import Box
 from torch.utils.data.dataset import Dataset
 from tqdm import tqdm
@@ -21,7 +22,7 @@ def load_trajectory_data(data_path: str) -> Dict:
     }
 
 
-class TrajectoryDataset(Dataset):
+class TrajectoryIndexDataset(Dataset):
     def __init__(self, data_dir, batch_length, device="cpu"):
         self.data_dir = data_dir
         self.batch_length = batch_length
@@ -76,6 +77,110 @@ class TrajectoryDataset(Dataset):
         )
 
 
+class ExperienceReplayDataset:
+    """
+    A dataset to store and sample trajectories for training.
+
+    100 episodes of 1000 steps each will take up approximately 9GB of memory.
+    """
+
+    def __init__(
+        self,
+        episode_dir: str,
+        buffer_size: int,
+        max_episode_length: int,
+        obs_shape: Tuple[int, ...],
+        action_size: int,
+        batch_size: int,
+        batch_length: int,
+        device: str = "cuda",
+    ):
+        self.episode_dir = episode_dir
+        self.buffer_size = buffer_size
+        self.max_episode_length = max_episode_length
+        self.obs_shape = obs_shape
+        self.action_size = action_size
+        self.batch_size = batch_size
+        self.batch_length = batch_length
+        self.device = device
+
+        self.num_episodes = 0
+        self.oldest_index = 0
+        self.episode_lengths = np.zeros(buffer_size, dtype=np.int32)
+        self.observations = np.empty(
+            (buffer_size, max_episode_length, *obs_shape), dtype=np.float32
+        )
+        self.actions = np.empty(
+            (buffer_size, max_episode_length, action_size), dtype=np.float32
+        )
+        self.rewards = np.empty((buffer_size, max_episode_length), dtype=np.float32)
+
+        # load all episodes if exists
+        # list all files, sorted by modification time, newest first
+        files = sorted(
+            [
+                os.path.join(episode_dir, f)
+                for f in os.listdir(episode_dir)
+                if f.endswith(".npz")
+            ],
+            key=lambda x: os.path.getmtime(x),
+            reverse=True,
+        )
+        for file in files[:buffer_size]:
+            self.add_trajectory(load_trajectory_data(file))
+
+    def add_trajectory(self, data: Dict):
+        obs, actions, rewards = data["obs"], data["action"], data["reward"]
+        episode_length = len(obs)
+        assert episode_length == len(actions) == len(rewards)
+        assert episode_length <= self.max_episode_length
+
+        self.episode_lengths[self.oldest_index] = episode_length
+        self.observations[self.oldest_index, :episode_length] = np.asarray(obs)
+        self.actions[self.oldest_index, :episode_length] = np.asarray(actions)
+        self.rewards[self.oldest_index, :episode_length] = np.asarray(rewards)
+        self.oldest_index = (self.oldest_index + 1) % self.buffer_size
+        self.num_episodes = min(self.num_episodes + 1, self.buffer_size)
+
+        wandb.log(
+            {
+                "dataset/num_episodes": self.num_episodes,
+                "dataset/oldest_index": self.oldest_index,
+            }
+        )
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        # sample batch_size trajectory indices
+        i1 = np.random.randint(0, self.num_episodes, self.batch_size)
+        lengths = (self.episode_lengths[i1] - self.batch_length).astype(int)
+        # sample batch_size start indices
+        starts = np.random.randint(0, lengths)
+
+        obs = np.zeros(
+            (self.batch_size, self.batch_length, *self.obs_shape), dtype=np.float32
+        )
+        actions = np.zeros(
+            (self.batch_size, self.batch_length, self.action_size), dtype=np.float32
+        )
+        rewards = np.zeros((self.batch_size, self.batch_length), dtype=np.float32)
+
+        for i, episode_index in enumerate(i1):
+            start = starts[i]
+            end = start + self.batch_length
+            obs[i] = self.observations[episode_index, start:end]
+            actions[i] = self.actions[episode_index, start:end]
+            rewards[i] = self.rewards[episode_index, start:end]
+
+        return (
+            torch.as_tensor(obs, dtype=torch.float32, device=self.device),
+            torch.as_tensor(actions, dtype=torch.float32, device=self.device),
+            torch.as_tensor(rewards, dtype=torch.float32, device=self.device),
+        )
+
+
 def get_random_action(action_spec: Box):
     minimum, maximum = action_spec.low, action_spec.high
     shape = action_spec.shape
@@ -105,6 +210,7 @@ class Collector:
                 target_num_episodes < 0 or target_num_steps < 0
         ), "Only one of num_episodes or num_steps should be greater than 0"
         assert self.agent.training is False, "Agent should be in eval mode"
+        assert self.agent.explore is self.explore
 
         env = self.env
         agent = self.agent
@@ -127,7 +233,7 @@ class Collector:
                 action_tensor, action_dist, value, i_reward, state = agent(
                     obs_tensor, prev_action, prev_state
                 )
-                action = action_tensor.cpu().numpy()
+                action = action_tensor.cpu().flatten().numpy()
 
             next_obs, reward, done, _ = env.step(action)
 

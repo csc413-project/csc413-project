@@ -36,7 +36,10 @@ class DMCEnv:
         #     )
         # spaces["image"] = Box(0, 255, (3,) + self.image_size, dtype=np.uint8)
         # return Dict(spaces)
-        return Box(0, 255, (3,) + self.image_size, dtype=np.uint8)
+        if self.normalize_obs:
+            return Box(-0.5, 0.5, (3,) + self.image_size, dtype=np.float32)
+        else:
+            return Box(0, 255, (3,) + self.image_size, dtype=np.uint8)
 
     @property
     def action_space(self):
@@ -79,7 +82,7 @@ class DMCEnv:
         return obs
 
     def render(self):
-        return self.env.physics.render(*self.image_size)
+        return self.env.physics.render(*self.image_size, camera_id=0)
 
 
 def worker(conn, env_fn, seed=0):

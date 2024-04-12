@@ -7,7 +7,7 @@ import wandb
 
 from models.agent import AgentModel
 from models.rssm import get_feat, get_dist, apply_states
-from src.utils import FreezeParameters, denormalize_image, merge_images_in_two_rows
+from src.utils import FreezeParameters, denormalize_images, merge_images_in_chunks
 
 
 class Dreamer:
@@ -91,6 +91,7 @@ class Dreamer:
         :param rewards: (seq_len, batch_size)
         :return:
         """
+        assert self.agent.explore is True
         seq_len, batch_size = observations.shape[:2]
 
         obs_embed = self.agent.observation_encoder(observations)
@@ -155,34 +156,67 @@ class Dreamer:
         log_prob = value_pred.log_prob(value_target)
         value_loss = -torch.mean(value_discount * log_prob.unsqueeze(2))
 
-        wandb.log(
-            {
-                "training_steps": self.training_steps,
-                "train/model_loss": image_loss.item(),
-                "train/reward_loss": reward_loss.item(),
-                "train/kl_div": kl_div.item(),
-                "train/actor_loss": actor_loss.item(),
-                "train/value_loss": value_loss.item(),
-            }
-        )
-        # log images
-        if self.training_steps % 100 == 0:
-            # a sequence of images
-            ground_truths = np.transpose(
-                denormalize_image(observations[:, 0].detach().cpu().numpy()),
-                (0, 2, 3, 1),
-            )
-            pred_images = np.transpose(
-                denormalize_image(image_pred.mean[:, 0].detach().cpu().numpy()),
-                (0, 2, 3, 1),
-            )
+        # logging
+        with torch.no_grad():
             wandb.log(
                 {
-                    "train/reconstruction": wandb.Image(
-                        merge_images_in_two_rows(ground_truths, pred_images)
-                    )
-                }
+                    "training_steps": self.training_steps,
+                    "train/model_loss": image_loss.item(),
+                    "train/reward_loss": reward_loss.item(),
+                    "train/kl_div": kl_div.item(),
+                    "train/actor_loss": actor_loss.item(),
+                    "train/value_loss": value_loss.item(),
+                },
+                commit=False,
             )
+            # log images
+            if self.training_steps % 500 == 0:
+                i = torch.randint(0, batch_size, (1,)).item()
+                # reconstruction quality
+                ground_truths = np.transpose(
+                    denormalize_images(observations[:, i].detach().cpu().numpy()),
+                    (0, 2, 3, 1),
+                )
+                pred_images = np.transpose(
+                    denormalize_images(image_pred.mean[:, i].detach().cpu().numpy()),
+                    (0, 2, 3, 1),
+                )
+                reconstruction_demo = merge_images_in_chunks(ground_truths, pred_images)
+                # prediction + reconstruction
+                # feed 5 obs to the model, and predict the next 45 obs
+                given_obs = observations[:5, i]
+                obs_embed = self.agent.observation_encoder(given_obs)
+                prev_state = self.agent.rssm.create_initial_state(1, device=self.device)
+                _, posterior = self.agent.rssm.observe(
+                    5,
+                    obs_embed.reshape(5, 1, -1),
+                    actions[:5, i].reshape(5, 1, -1),
+                    prev_state,
+                )
+                posterior = apply_states(posterior, lambda x: x[-1])
+                states = self.agent.rssm.follow(
+                    45, actions[5:, i].reshape(45, 1, -1), posterior
+                )
+                features = get_feat(states)
+                pred_images = self.agent.observation_decoder(features)
+                pred_images = np.transpose(
+                    np.squeeze(
+                        denormalize_images(pred_images.mean.detach().cpu().numpy()),
+                        axis=1,
+                    ),
+                    (0, 2, 3, 1),
+                )
+                # first row is observed
+                prediction_demo = merge_images_in_chunks(
+                    ground_truths[5:], pred_images, chunk_size=5
+                )
+
+                wandb.log(
+                    {
+                        "train/reconstruction": wandb.Image(reconstruction_demo),
+                        "train/prediction": wandb.Image(prediction_demo),
+                    }
+                )
 
         return model_loss, actor_loss, value_loss
 
