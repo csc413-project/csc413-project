@@ -144,8 +144,8 @@ class Dreamer:
             bootstrap=imagine_value_pred[-1],
             lambda_=self.discount_lambda,
         )
-        discount_arr = torch.cat([torch.ones_like(discount_arr[:1]), discount_arr[1:]])
-        discount = torch.cumprod(discount_arr[:-1], 0)
+        discount_arr = torch.cat([torch.ones_like(discount_arr[:1]), discount_arr])
+        discount = torch.cumprod(discount_arr[:-2], 0)
         actor_loss = -torch.mean(discount * value_estimates)
 
         with torch.no_grad():
