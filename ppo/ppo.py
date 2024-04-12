@@ -1,45 +1,40 @@
 import os
 import time
-from dataclasses import dataclass
-
+import torch
+import numpy as np
+import wandb
 import envpool
 import gymnasium as gym
-import numpy as np
-import torch
-import wandb
-from gymnasium.wrappers import RecordVideo, AtariPreprocessing, FrameStack
 from torch import optim
-from torch.optim.lr_scheduler import ExponentialLR, LRScheduler
+from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
 
+from PPOAgent import PPOAgentWithRSSM, PPOAgent  # Assume we've stored our model here
 from data import BatchDataset, VectorSampler, Agent
-from network import AbstractModel, CategoricalCNNModel
-from utils import init_wandb
-
+from utils import init_wandb, FrameStack, AtariPreprocessing, RecordVideo
 
 @dataclass
 class PPOConfig:
     env_name: str
-
     sampler: VectorSampler
-    init_model: AbstractModel
+    init_model: PPOAgentWithRSSM
     optimizer: optim.Optimizer
-    lr_scheduler: LRScheduler
+    lr_scheduler: optim.lr_scheduler.LRScheduler
 
-    # sampler config
-    T: int = 128  # horizon
-    # rl hyperparameters
-    discount_gamma: float = 0.95
-    gae_lambda: float = 0.97
-    # training hyperparameters
+    # Sampler configuration
+    T: int = 128  # Horizon for trajectory rollout
+    # RL hyperparameters
+    discount_gamma: float = 0.99
+    gae_lambda: float = 0.95
+    # Training hyperparameters
     lr: float = 3e-4
     lr_gamma: float = 0.98
-    mini_batch_size: int = 5
-    iterations: int = 200
-    epochs: int = 1  # sample reuse
+    mini_batch_size: int = 64
+    iterations: int = 1000
+    epochs: int = 3  # Sample reuse
     device: str = "cuda"
     # PPO specific
-    clip_epsilon: float = 0.2  # clip ratio
+    clip_epsilon: float = 0.2
     entropy_beta: float = 0.01
     value_coeff: float = 1.0
 
@@ -58,9 +53,7 @@ class PPOConfig:
             "value_coeff": self.value_coeff,
         }
 
-
 class PPO:
-
     def __init__(self, config: PPOConfig):
         self.config = config
         self.sampler = config.sampler
@@ -75,17 +68,13 @@ class PPO:
         wandb.define_metric("train/*", step_metric="update_steps")
         wandb.define_metric("agent/*", step_metric="iteration")
         update_steps, total_env_steps = 0, 0
-        policy_losses, entropy, kl_divergences, value_losses = [], [], [], []
-        prev_sample = None
         for i in range(self.config.iterations):
             start_time = time.time()
             print(f"========= Iteration {i} =========")
-            # collect trajectories using the current policy
+            # Collect trajectories using the current policy
             batch, prev_sample = self.sampler.sample(self.config.T, iteration=i, prev=prev_sample)
             total_env_steps += len(batch)
             wandb.log({
-                # "agent/episode_return": batch.compute_episode_return(),
-                # "agent/episode_length": batch.compute_episode_length(),
                 "agent/batch_size": len(batch),
                 "agent/total_env_steps": total_env_steps,
             }, step=i)
@@ -96,43 +85,37 @@ class PPO:
 
             for e in range(self.config.epochs):
                 for obses, actions, log_probs_old, rewards, values, reward_to_go, advantages in loader:
-                    # optimize policy
+                    # Optimize policy
                     self.optimizer.zero_grad()
-                    pi, log_pi_a = self.model.forward_policy(obses, actions)
-                    kl_divergences.append((log_probs_old - log_pi_a).mean().item())
+                    # Adapt these API calls to use the evaluate_actions method from the agent
+                    pi, log_pi_a, value_preds, _ = self.model.evaluate_actions(obses, actions)
+                    kl_divergences = (log_probs_old - log_pi_a).mean().item()
                     ratio = torch.exp(log_pi_a - log_probs_old)
                     clipped_ratio = torch.clip(ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon)
                     pi_loss = -(torch.min(ratio * advantages, clipped_ratio * advantages)).mean()
-                    policy_losses.append(pi_loss.item())
-                    entropy_bonus = pi.entropy().mean()
-                    entropy.append(entropy_bonus.item())
-                    # optimize value
-                    v_loss = ((reward_to_go - self.model.forward_value(obses)) ** 2).mean()
-                    value_losses.append(v_loss.item())
-
+                    v_loss = ((reward_to_go - value_preds) ** 2).mean()
                     total_loss = (pi_loss
                                   + self.config.value_coeff * v_loss
-                                  - self.config.entropy_beta * entropy_bonus)
+                                  - self.config.entropy_beta * pi.entropy().mean())
                     total_loss.backward()
                     self.optimizer.step()
-
                     update_steps += 1
                     wandb.log({
                         "update_steps": update_steps,
                         "iteration": i,
                         "train/policy_loss": pi_loss.item(),
-                        "train/entropy": entropy_bonus.item(),
+                        "train/entropy": pi.entropy().mean().item(),
                         "train/value_loss": v_loss.item(),
-                        "train/kl_divergence": kl_divergences[-1],
+                        "train/kl_divergence": kl_divergences,
                         "train/lr": self.scheduler.get_last_lr()[0],
                     }, commit=False)
             print(f"Optimized in {time.time() - start_time:.2f}s")
             start_time = time.time()
-            # update learning rate
+            # Update learning rate
             self.scheduler.step()
-            # sync model to sampler
+            # Sync model to sampler
             self.sampler.reset_model(self.model)
-            # save model and test
+            # Save model and test
             if i % 10 == 0:
                 os.makedirs(f"models/{self.config.env_name}", exist_ok=True)
                 os.makedirs(f"videos/{self.config.env_name}", exist_ok=True)
@@ -144,18 +127,15 @@ class PPO:
                 }, step=i)
                 print(f"Saved model and Tested in {time.time() - start_time:.2f}s")
 
-
 def main():
     env_name = "Breakout-v5"
-    # env_name = "Pong-v5"
-    # env_name = "BattleZone-v5"
-    # env_name = "SpaceInvaders-v5"
     env = envpool.make(env_name, "gymnasium")
     obs_shape = env.observation_space.shape
     act_shape = env.action_space.n
-    print(f"Environment: {env_name} | obs_shape: {obs_shape} | act_shape: {act_shape.item()}")
+    print(f"Environment: {env_name} | obs_shape: {obs_shape} | act_shape: {act_shape}")
 
-    model = CategoricalCNNModel(4, act_shape.item())
+    # Set up your PPOAgentWithRSSM model here with correct parameters
+    model = PPOAgentWithRSSM(action_shape=(act_shape,), obs_image_shape=obs_shape)
     model.load_state_dict(torch.load("models/Breakout-v5/ppo_1990.pt"))
 
     policy_lr = 2.5e-4
@@ -163,30 +143,11 @@ def main():
     lr_gamma = 0.9995
     scheduler = ExponentialLR(optimizer, lr_gamma)
 
-    def recorder_env_fn():
-        return RecordVideo(
-            FrameStack(
-                AtariPreprocessing(
-                    gym.make("ALE/" + env_name, render_mode="rgb_array", frameskip=1),
-                    grayscale_obs=True),
-                num_stack=4
-            ),
-            video_folder=f"videos/{env_name}", episode_trigger=lambda e: True, disable_logger=True)
-
-    recorder = Agent(
-        recorder_env_fn,
-        model,
-        device="cpu"
-    )
-
-    discount_gamma = 0.99
-    gae_lambda = 0.95
     sampler = VectorSampler(
         env_name,
         model,
-        discount_gamma,
-        gae_lambda,
-        # video_recorder=recorder,
+        discount_gamma=0.99,
+        gae_lambda=0.95,
         num_envs=8,
         num_parallel=8,
     )
@@ -198,14 +159,14 @@ def main():
         optimizer=optimizer,
         lr_scheduler=scheduler,
         T=128,
-        discount_gamma=discount_gamma,
-        gae_lambda=gae_lambda,
+        discount_gamma=0.99,
+        gae_lambda=0.95,
         lr=policy_lr,
         lr_gamma=lr_gamma,
-        mini_batch_size=32 * 8,
-        iterations=10_000,
+        mini_batch_size=64,
+        iterations=1000,
         epochs=3,
-        clip_epsilon=0.1,
+        clip_epsilon=0.2,
         entropy_beta=0.01,
     )
     init_wandb(f"ppo-{env_name}", **config.to_dict())
@@ -214,7 +175,6 @@ def main():
     ppo.train()
 
     wandb.finish()
-
 
 if __name__ == "__main__":
     assert torch.cuda.is_available()
