@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 from dm_control import suite
 from gymnasium.spaces import Box
@@ -78,11 +80,16 @@ class DMCEnv:
     def render(self):
         return self.env.physics.render(*self.image_size)
 
-
 def worker(conn, env_fn):
     """
     Worker process that handles stepping through an environment.
     """
+    import os
+    # Test if windows
+    if os.name != 'nt':
+        os.environ["PYOPENGL_PLATFORM"] = "osmesa"
+        os.environ["MUJOCO_GL"] = "osmesa"
+
     env = env_fn()  # Initialize the environment for this worker.
     while True:
         cmd, action = conn.recv()
