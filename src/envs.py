@@ -19,7 +19,7 @@ class DMCEnv:
         normalize_obs: bool = True,
         action_repeat: int = 2,
         seed: int = 0,
-            render_kwargs=None,
+        render_kwargs=None,
     ):
         self.env = suite.load(
             domain_name=domain_name, task_name=task_name, task_kwargs={"random": seed}

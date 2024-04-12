@@ -16,6 +16,15 @@ from utils import denormalize_images, count_env_steps
 ENV_SETTINGS = {
     "cartpole": ["swingup"],
     "cheetah": ["run"],
+    "finger": ["turn_hard"],
+    "hopper": ["hop"],
+}
+
+ENV_PREFERRED_CAMERA = {
+    ("cartpole", "swingup"): None,
+    ("cheetah", "run"): 0,
+    ("finger", "turn_hard"): 0,
+    ("hopper", "hop"): 0,
 }
 
 
@@ -26,7 +35,7 @@ class DreamerConfig:
     task_name: str = "run"
     obs_image_size: Tuple = (64, 64)
     action_repeats: int = 2
-    camera_id: int = 0
+    camera_id: int = ENV_PREFERRED_CAMERA[(domain_name, task_name)]
     render_kwargs: Dict = None
     # general setting
     base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/2/"
@@ -50,9 +59,12 @@ class DreamerConfig:
     def __post_init__(self):
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.model_dir, exist_ok=True)
-        self.render_kwargs = {
-            "camera_id": self.camera_id,
-        }
+        if self.camera_id is None:
+            self.render_kwargs = {}
+        else:
+            self.render_kwargs = {
+                "camera_id": self.camera_id,
+            }
 
 
 def main():
