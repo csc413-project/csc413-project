@@ -27,7 +27,7 @@ def main():
     init_wandb(config)
 
     env = create_env(config)
-    ppo = PPO(config)
+    ppo = PPO(config, env)
     ppo.train()
 
     # Assuming there's a testing method or additional functionality to test the model:

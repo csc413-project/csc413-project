@@ -55,8 +55,9 @@ class PPOConfig:
         }
 
 class PPO:
-    def __init__(self, config: PPOConfig):
+    def __init__(self, config: PPOConfig, env):
         self.config = config
+        self.env = env
         self.sampler = config.sampler
         self.model = config.init_model.to(config.device)
         self.optimizer = config.optimizer
@@ -94,6 +95,7 @@ class PPO:
                     ratio = torch.exp(log_pi_a - log_probs_old)
                     clipped_ratio = torch.clip(ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon)
 
+                    # compute loss
                     pi_loss = -(torch.min(ratio * advantages, clipped_ratio * advantages)).mean()
                     v_loss = ((reward_to_go - value_preds) ** 2).mean()
 
@@ -101,9 +103,10 @@ class PPO:
                                   + self.config.value_coeff * v_loss
                                   - self.config.entropy_beta * pi.entropy().mean())
                     
-                    
+
                     total_loss.backward()
                     self.optimizer.step()
+
                     update_steps += 1
                     wandb.log({
                         "update_steps": update_steps,
