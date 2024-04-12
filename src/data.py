@@ -198,16 +198,16 @@ class Collector:
 
     @torch.no_grad()
     def collect(
-            self,
-            target_num_episodes: int = 1,
-            target_num_steps: int = -1,
-            obs=None,
-            prev_action=None,
-            prev_state=None,
-            random_action=False,
+        self,
+        target_num_episodes: int = 1,
+        target_num_steps: int = -1,
+        obs=None,
+        prev_action=None,
+        prev_state=None,
+        random_action=False,
     ):
         assert (target_num_episodes > 0 or target_num_steps > 0) and (
-                target_num_episodes < 0 or target_num_steps < 0
+            target_num_episodes < 0 or target_num_steps < 0
         ), "Only one of num_episodes or num_steps should be greater than 0"
         assert self.agent.training is False, "Agent should be in eval mode"
         assert self.agent.explore is self.explore
@@ -266,7 +266,9 @@ class Collector:
 
 
 class VectorCollector:
-    def __init__(self, env: VectorDMCEnv, agent: AgentModel, explore: bool, device="cpu"):
+    def __init__(
+        self, env: VectorDMCEnv, agent: AgentModel, explore: bool, device="cpu"
+    ):
         self.envs = env
         self.agent = None
         self.explore = explore
@@ -276,16 +278,26 @@ class VectorCollector:
 
     @torch.no_grad()
     def collect(
-            self,
-            target_num_episodes: int = 1,
-            target_num_steps: int = -1,
-            obs=None,
-            prev_action=None,
-            prev_state=None,
-            random_action=False,
+        self,
+        target_num_episodes: int = 1,
+        target_num_steps: int = -1,
+        obs=None,
+        prev_action=None,
+        prev_state=None,
+        random_action=False,
     ):
+        """
+        Collects data from the environment using the agent.
+        :param target_num_episodes:
+        :param target_num_steps:
+        :param obs:
+        :param prev_action:
+        :param prev_state:
+        :param random_action:
+        :return: the num_episodes and num_steps are for single env
+        """
         assert (target_num_episodes > 0 or target_num_steps > 0) and (
-                target_num_episodes < 0 or target_num_steps < 0
+            target_num_episodes < 0 or target_num_steps < 0
         ), "Only one of num_episodes or num_steps should be greater than 0"
         assert self.agent.training is False, "Agent should be in eval mode"
 
@@ -297,21 +309,22 @@ class VectorCollector:
             obs = envs.reset()
 
         num_episodes, num_steps = 0, 0
-        pbar = tqdm(desc="Collecting Data", leave=True)
+        pbar = tqdm(desc="Collecting Data", leave=False)
         while num_episodes < target_num_episodes or num_steps < target_num_steps:
             if random_action:
                 # Get a random action for each environment
                 action = np.random.uniform(
-                    envs.action_space.low, envs.action_space.high, (envs.num_envs, ) + envs.action_space.shape
+                    envs.action_space.low,
+                    envs.action_space.high,
+                    (envs.num_envs,) + envs.action_space.shape,
                 )
 
                 state = None
                 action_tensor = action
             else:
-                obs_tensor = torch.unsqueeze(
-                    torch.tensor(obs.copy(), dtype=torch.float32, device=self.device),
-                    0,
-                )  # assume normalized obs
+                obs_tensor = torch.tensor(
+                    obs.copy(), dtype=torch.float32, device=self.device
+                )
                 action_tensor, action_dist, value, i_reward, state = agent(
                     obs_tensor, prev_action, prev_state
                 )
@@ -346,3 +359,6 @@ class VectorCollector:
         self.agent = self.agent.to(self.device)
         self.agent.eval()
         self.agent.explore = self.explore
+
+    def close(self):
+        self.envs.close()

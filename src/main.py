@@ -7,7 +7,7 @@ import torch
 import wandb
 from tqdm import trange
 
-from data import Collector, ExperienceReplayDataset
+from data import Collector, ExperienceReplayDataset, VectorCollector, VectorDMCEnv
 from dreamer import Dreamer
 from envs import DMCEnv
 from models.agent import AgentModel
@@ -27,10 +27,12 @@ class DreamerConfig:
     obs_image_size: Tuple = (64, 64)
     action_repeats: int = 2
     # general setting
-    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/1/"
+    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/2/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
-    load_model_path: Optional[str] = "/home/scott/tmp/dreamer/cheetah_run/0/models/145990.pt"  # path to load model
+    load_model_path: Optional[str] = (
+        "/home/scott/tmp/dreamer/cheetah_run/1/models/126000.pt"  # path to load model
+    )
     # training setting
     training_epochs: int = 1000  # number of training episodes
     prefill_episodes = 5  # number of episodes to prefill the dataset
@@ -40,6 +42,8 @@ class DreamerConfig:
     training_device = "cuda"  # training device
     # testing setting
     test_every: int = 20  # test (and save model) every n episodes
+    test_num_envs: int = 5  # number of parallel test environments
+    test_env_starting_seed: int = 1108  # starting seed for test environments
     # collector setting
     collector_device = "cuda"  # collector device
 
@@ -70,8 +74,13 @@ def main():
         config.task_name,
         config.obs_image_size,
         action_repeat=config.action_repeats,
-    )
+    )  # for training
     action_spec = env.action_space
+
+    def create_env(seed: int = 0):  # for testing and initial data collection
+        return DMCEnv(
+            domain_name=config.domain_name, task_name=config.task_name, seed=seed
+        )
 
     # init dreamer
     agent = AgentModel(action_shape=action_spec.shape)
@@ -93,15 +102,40 @@ def main():
 
     # init collectors
     train_collector = Collector(env, dreamer.agent, True, config.collector_device)
-    test_collector = Collector(env, dreamer.agent, False, config.collector_device)
+    test_collector = VectorCollector(
+        VectorDMCEnv(create_env, config.test_num_envs, config.test_env_starting_seed),
+        dreamer.agent,
+        False,
+        config.collector_device,
+    )
 
     # prefill dataset with 5 random trajectories, if needed
     total_env_steps, episodes = count_env_steps(config.data_dir, config.action_repeats)
     if config.prefill_episodes - episodes > 0:
-        prefill_data, _, (_, env_steps) = train_collector.collect(
-            target_num_episodes=config.prefill_episodes - episodes, random_action=True
+        prefill_collector = VectorCollector(
+            VectorDMCEnv(
+                create_env,
+                config.prefill_episodes - episodes,
+                config.test_env_starting_seed,
+            ),
+            dreamer.agent,
+            False,
+            config.collector_device,
         )
-        total_env_steps += env_steps * config.action_repeats
+        prefill_data, _, (_, env_steps) = prefill_collector.collect(
+            target_num_episodes=1, random_action=True
+        )
+        prefill_collector.close()
+        prefill_data = {k: np.array(v) for k, v in prefill_data[0].items()}
+        total_env_steps += env_steps * config.action_repeats * len(prefill_data)
+        prefill_data = [
+            {
+                "obs": prefill_data["obs"][:, i],
+                "action": prefill_data["action"][:, i],
+                "reward": prefill_data["reward"][:, i],
+            }
+            for i in range(config.prefill_episodes - episodes)
+        ]
         for i, data in enumerate(prefill_data):
             np.savez_compressed(
                 os.path.join(config.data_dir, f"pre_{i + episodes}.npz"), **data
@@ -141,10 +175,15 @@ def main():
             observations = denormalize_images(np.array(data["obs"]))
             wandb.log(
                 {
-                    "agent/test_return": sum(data["reward"]),
-                    "agent/test_video": wandb.Video(observations, fps=30, format="mp4"),
+                    "agent/test_return": np.mean(np.sum(data["reward"], axis=1)),
+                    "agent/test_video": [
+                        wandb.Video(observations[:, j], fps=30, format="mp4")
+                        for j in range(config.test_num_envs)
+                    ],
                 }
             )
+
+    test_collector.close()
 
 
 if __name__ == "__main__":

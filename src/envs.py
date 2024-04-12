@@ -89,7 +89,7 @@ def worker(conn, env_fn, seed=0):
     """
     Worker process that handles stepping through an environment.
     """
-    if os.name != "nt":
+    if os.name != "nt":  # TODO: investigate more
         os.environ["PYOPENGL_PLATFORM"] = "osmesa"
         os.environ["MUJOCO_GL"] = "osmesa"
     env = env_fn(seed)  # Initialize the environment for this worker.
