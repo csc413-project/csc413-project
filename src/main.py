@@ -27,11 +27,11 @@ class DreamerConfig:
     obs_image_size: Tuple = (64, 64)
     action_repeats: int = 2
     # general setting
-    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/2/"
+    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/1/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
     load_model_path: Optional[str] = (
-        "/home/scott/tmp/dreamer/cheetah_run/1/models/126000.pt"  # path to load model
+        "/home/scott/tmp/dreamer/cheetah_run/1/models/146000.pt"  # path to load model
     )
     # training setting
     training_epochs: int = 1000  # number of training episodes

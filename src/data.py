@@ -116,7 +116,7 @@ class ExperienceReplayDataset:
         self.rewards = np.empty((buffer_size, max_episode_length), dtype=np.float32)
 
         # load all episodes if exists
-        # list all files, sorted by modification time, newest first
+        # list all files, sorted by modification time, oldest first
         files = sorted(
             [
                 os.path.join(episode_dir, f)
@@ -124,9 +124,8 @@ class ExperienceReplayDataset:
                 if f.endswith(".npz")
             ],
             key=lambda x: os.path.getmtime(x),
-            reverse=True,
         )
-        for file in files[:buffer_size]:
+        for file in files[-buffer_size:]:
             self.add_trajectory(load_trajectory_data(file))
 
     def add_trajectory(self, data: Dict):
