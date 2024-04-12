@@ -1,7 +1,6 @@
 import os
 from dataclasses import dataclass, asdict
 from typing import Tuple, Optional, Dict
-from collections import defaultdict
 
 import numpy as np
 import torch
@@ -84,7 +83,10 @@ def main():
 
     def create_env(seed: int = 0):  # for testing and initial data collection
         return DMCEnv(
-            domain_name=config.domain_name, task_name=config.task_name, seed=seed
+            domain_name=config.domain_name,
+            task_name=config.task_name,
+            seed=seed,
+            render_kwargs=config.render_kwargs,
         )
 
     # init dreamer
