@@ -4,6 +4,7 @@ from typing import Dict, Tuple
 
 import numpy as np
 import torch
+import wandb
 from gymnasium.spaces import Box
 from torch.utils.data.dataset import Dataset
 from tqdm import tqdm
@@ -140,6 +141,13 @@ class ExperienceReplayDataset:
         self.rewards[self.oldest_index, :episode_length] = np.asarray(rewards)
         self.oldest_index = (self.oldest_index + 1) % self.buffer_size
         self.num_episodes = min(self.num_episodes + 1, self.buffer_size)
+
+        wandb.log(
+            {
+                "dataset/num_episodes": self.num_episodes,
+                "dataset/oldest_index": self.oldest_index,
+            }
+        )
 
     def __iter__(self):
         return self

@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, asdict
-from typing import Tuple
+from typing import Tuple, Optional
 
 import numpy as np
 import torch
@@ -27,9 +27,10 @@ class DreamerConfig:
     obs_image_size: Tuple = (64, 64)
     action_repeats: int = 2
     # general setting
-    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/0/"
+    base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/1/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
+    load_model_path: Optional[str] = "/home/scott/tmp/dreamer/cheetah_run/0/models/145990.pt"  # path to load model
     # training setting
     training_epochs: int = 1000  # number of training episodes
     prefill_episodes = 5  # number of episodes to prefill the dataset
@@ -59,6 +60,7 @@ def main():
     )
     wandb.define_metric("env_steps")
     wandb.define_metric("agent/*", step_metric="env_steps")
+    wandb.define_metric("dataset/*", step_metric="env_steps")
     wandb.define_metric("training_steps")
     wandb.define_metric("train/*", step_metric="training_steps")
 
@@ -72,9 +74,10 @@ def main():
     action_spec = env.action_space
 
     # init dreamer
-    dreamer = Dreamer(
-        AgentModel(action_shape=action_spec.shape), device=config.training_device
-    )
+    agent = AgentModel(action_shape=action_spec.shape)
+    if config.load_model_path is not None:
+        agent.load_state_dict(torch.load(config.load_model_path))
+    dreamer = Dreamer(agent, device=config.training_device)
 
     # init buffer
     buffer = ExperienceReplayDataset(

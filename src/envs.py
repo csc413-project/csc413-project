@@ -76,4 +76,4 @@ class DMCEnv:
         return obs
 
     def render(self):
-        return self.env.physics.render(*self.image_size)
+        return self.env.physics.render(*self.image_size, camera_id=0)
