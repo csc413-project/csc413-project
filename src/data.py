@@ -9,8 +9,8 @@ from gymnasium.spaces import Box
 from torch.utils.data.dataset import Dataset
 from tqdm import tqdm
 
-from src.envs import DMCEnv
-from src.models.agent import AgentModel
+from envs import DMCEnv, VectorDMCEnv
+from models.agent import AgentModel
 
 
 def load_trajectory_data(data_path: str) -> Dict:
@@ -188,7 +188,6 @@ def get_random_action(action_spec: Box):
 
 
 class Collector:
-
     def __init__(self, env: DMCEnv, agent: AgentModel, explore: bool, device="cpu"):
         self.env = env
         self.agent = None
@@ -199,16 +198,16 @@ class Collector:
 
     @torch.no_grad()
     def collect(
-        self,
-        target_num_episodes: int = 1,
-        target_num_steps: int = -1,
-        obs=None,
-        prev_action=None,
-        prev_state=None,
-        random_action=False,
+            self,
+            target_num_episodes: int = 1,
+            target_num_steps: int = -1,
+            obs=None,
+            prev_action=None,
+            prev_state=None,
+            random_action=False,
     ):
         assert (target_num_episodes > 0 or target_num_steps > 0) and (
-            target_num_episodes < 0 or target_num_steps < 0
+                target_num_episodes < 0 or target_num_steps < 0
         ), "Only one of num_episodes or num_steps should be greater than 0"
         assert self.agent.training is False, "Agent should be in eval mode"
         assert self.agent.explore is self.explore
@@ -242,6 +241,89 @@ class Collector:
                 next_obs = env.reset()
                 num_episodes += 1
                 data.append(dict(obs=[], action=[], reward=[]))
+            else:
+                data[num_episodes]["obs"].append(obs)
+                data[num_episodes]["action"].append(action)
+                data[num_episodes]["reward"].append(reward)
+
+            obs = next_obs
+            prev_action = action_tensor
+            prev_state = state
+            num_steps += 1
+            pbar.update(1)
+        pbar.close()
+
+        if not data[-1]["obs"]:
+            data.pop(-1)
+        # return additional information for resuming
+        return data, (obs, prev_action, prev_state), (num_episodes, num_steps)
+
+    def reset_agent(self, new_agent: AgentModel):
+        self.agent = copy.deepcopy(new_agent)
+        self.agent = self.agent.to(self.device)
+        self.agent.eval()
+        self.agent.explore = self.explore
+
+
+class VectorCollector:
+    def __init__(self, env: VectorDMCEnv, agent: AgentModel, explore: bool, device="cpu"):
+        self.envs = env
+        self.agent = None
+        self.explore = explore
+        self.device = device
+
+        self.reset_agent(agent)
+
+    @torch.no_grad()
+    def collect(
+            self,
+            target_num_episodes: int = 1,
+            target_num_steps: int = -1,
+            obs=None,
+            prev_action=None,
+            prev_state=None,
+            random_action=False,
+    ):
+        assert (target_num_episodes > 0 or target_num_steps > 0) and (
+                target_num_episodes < 0 or target_num_steps < 0
+        ), "Only one of num_episodes or num_steps should be greater than 0"
+        assert self.agent.training is False, "Agent should be in eval mode"
+
+        envs = self.envs
+        agent = self.agent
+        data = [dict(obs=[], action=[], reward=[])]
+
+        if obs is None:
+            obs = envs.reset()
+
+        num_episodes, num_steps = 0, 0
+        pbar = tqdm(desc="Collecting Data", leave=True)
+        while num_episodes < target_num_episodes or num_steps < target_num_steps:
+            if random_action:
+                # Get a random action for each environment
+                action = np.random.uniform(
+                    envs.action_space.low, envs.action_space.high, (envs.num_envs, ) + envs.action_space.shape
+                )
+
+                state = None
+                action_tensor = action
+            else:
+                obs_tensor = torch.unsqueeze(
+                    torch.tensor(obs.copy(), dtype=torch.float32, device=self.device),
+                    0,
+                )  # assume normalized obs
+                action_tensor, action_dist, value, i_reward, state = agent(
+                    obs_tensor, prev_action, prev_state
+                )
+                action = action_tensor.cpu().numpy()
+
+            next_obs, reward, done, _ = envs.step(action)
+
+            if done.all():
+                next_obs = envs.reset()
+                num_episodes += 1
+                data.append(dict(obs=[], action=[], reward=[]))
+
             else:
                 data[num_episodes]["obs"].append(obs)
                 data[num_episodes]["action"].append(action)
