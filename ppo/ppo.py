@@ -3,6 +3,7 @@ import time
 import torch
 import numpy as np
 import wandb
+from dataclasses import dataclass, asdict
 import envpool
 import gymnasium as gym
 from torch import optim
@@ -92,11 +93,15 @@ class PPO:
                     kl_divergences = (log_probs_old - log_pi_a).mean().item()
                     ratio = torch.exp(log_pi_a - log_probs_old)
                     clipped_ratio = torch.clip(ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon)
+
                     pi_loss = -(torch.min(ratio * advantages, clipped_ratio * advantages)).mean()
                     v_loss = ((reward_to_go - value_preds) ** 2).mean()
+
                     total_loss = (pi_loss
                                   + self.config.value_coeff * v_loss
                                   - self.config.entropy_beta * pi.entropy().mean())
+                    
+                    
                     total_loss.backward()
                     self.optimizer.step()
                     update_steps += 1
@@ -127,55 +132,6 @@ class PPO:
                 }, step=i)
                 print(f"Saved model and Tested in {time.time() - start_time:.2f}s")
 
-def main():
-    env_name = "Breakout-v5"
-    env = envpool.make(env_name, "gymnasium")
-    obs_shape = env.observation_space.shape
-    act_shape = env.action_space.n
-    print(f"Environment: {env_name} | obs_shape: {obs_shape} | act_shape: {act_shape}")
 
-    # Set up your PPOAgentWithRSSM model here with correct parameters
-    model = PPOAgentWithRSSM(action_shape=(act_shape,), obs_image_shape=obs_shape)
-    model.load_state_dict(torch.load("models/Breakout-v5/ppo_1990.pt"))
-
-    policy_lr = 2.5e-4
-    optimizer = optim.Adam(model.parameters(), lr=policy_lr)
-    lr_gamma = 0.9995
-    scheduler = ExponentialLR(optimizer, lr_gamma)
-
-    sampler = VectorSampler(
-        env_name,
-        model,
-        discount_gamma=0.99,
-        gae_lambda=0.95,
-        num_envs=8,
-        num_parallel=8,
-    )
-
-    config = PPOConfig(
-        env_name=env_name,
-        sampler=sampler,
-        init_model=model,
-        optimizer=optimizer,
-        lr_scheduler=scheduler,
-        T=128,
-        discount_gamma=0.99,
-        gae_lambda=0.95,
-        lr=policy_lr,
-        lr_gamma=lr_gamma,
-        mini_batch_size=64,
-        iterations=1000,
-        epochs=3,
-        clip_epsilon=0.2,
-        entropy_beta=0.01,
-    )
-    init_wandb(f"ppo-{env_name}", **config.to_dict())
-
-    ppo = PPO(config)
-    ppo.train()
-
-    wandb.finish()
-
-if __name__ == "__main__":
-    assert torch.cuda.is_available()
-    main()
+def init_wandb(config):
+    wandb.init(project="ppo-project", config=asdict(config), entity="user-entity")
