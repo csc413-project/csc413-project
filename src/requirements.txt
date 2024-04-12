@@ -6,3 +6,4 @@ torch
 gymnasium
 opencv-python
 moviepy
+wandb

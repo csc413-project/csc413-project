@@ -7,7 +7,7 @@ import wandb
 
 from models.agent import AgentModel
 from models.rssm import get_feat, get_dist, apply_states
-from src.utils import FreezeParameters, denormalize_images, merge_images_in_chunks
+from utils import FreezeParameters, denormalize_images, merge_images_in_chunks
 
 
 class Dreamer:
