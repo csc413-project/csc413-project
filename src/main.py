@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass, asdict
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -26,6 +27,8 @@ class DreamerConfig:
     task_name: str = "run"
     obs_image_size: Tuple = (64, 64)
     action_repeats: int = 2
+    camera_id: int = 0
+    render_kwargs: Dict = None
     # general setting
     base_dir = f"/home/scott/tmp/dreamer/{domain_name}_{task_name}/2/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
@@ -39,7 +42,7 @@ class DreamerConfig:
     training_steps: int = 100  # number of training steps
     training_device = "cuda"  # training device
     # testing setting
-    test_every: int = 20  # test (and save model) every n episodes
+    test_every: int = 8  # test (and save model) every n episodes
     test_num_envs: int = 5  # number of parallel test environments
     test_env_starting_seed: int = 1108  # starting seed for test environments
     # collector setting
@@ -48,6 +51,9 @@ class DreamerConfig:
     def __post_init__(self):
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.model_dir, exist_ok=True)
+        self.render_kwargs = {
+            "camera_id": self.camera_id,
+        }
 
 
 def main():
@@ -72,6 +78,7 @@ def main():
         config.task_name,
         config.obs_image_size,
         action_repeat=config.action_repeats,
+        render_kwargs=config.render_kwargs,
     )  # for training
     action_spec = env.action_space
 

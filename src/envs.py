@@ -19,6 +19,7 @@ class DMCEnv:
         normalize_obs: bool = True,
         action_repeat: int = 2,
         seed: int = 0,
+            render_kwargs=None,
     ):
         self.env = suite.load(
             domain_name=domain_name, task_name=task_name, task_kwargs={"random": seed}
@@ -26,6 +27,7 @@ class DMCEnv:
         self.image_size = image_size
         self.normalize_obs = normalize_obs
         self.action_repeat = action_repeat
+        self.render_kwargs = render_kwargs if render_kwargs is not None else {}
 
     @property
     def observation_space(self):
@@ -82,7 +84,7 @@ class DMCEnv:
         return obs
 
     def render(self):
-        return self.env.physics.render(*self.image_size, camera_id=0)
+        return self.env.physics.render(*self.image_size, **self.render_kwargs)
 
 
 def worker(conn, env_fn, seed=0):
