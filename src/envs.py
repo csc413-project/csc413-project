@@ -80,7 +80,7 @@ class DMCEnv:
     def render(self):
         return self.env.physics.render(*self.image_size)
 
-def worker(conn, env_fn):
+def worker(conn, env_fn, seed=0):
     """
     Worker process that handles stepping through an environment.
     """
@@ -90,7 +90,7 @@ def worker(conn, env_fn):
         os.environ["PYOPENGL_PLATFORM"] = "osmesa"
         os.environ["MUJOCO_GL"] = "osmesa"
 
-    env = env_fn()  # Initialize the environment for this worker.
+    env = env_fn(seed)  # Initialize the environment for this worker.
     while True:
         cmd, action = conn.recv()
         if cmd == 'step':
@@ -115,13 +115,13 @@ class VectorDMCEnv:
     with VectorDMCEnv(env_fn, num_envs=4) as vector_env:
         # Do stuff with vector_env
     """
-    def __init__(self, env_fn, num_envs):
+    def __init__(self, env_fn, num_envs, seed=0):
         self.num_envs = num_envs
         self.env_fns = [env_fn for _ in range(num_envs)]
         self.parents, self.workers = zip(*[Pipe() for _ in range(num_envs)])
         self.procs = [
-            Process(target=worker, args=(child, env_fn))
-            for child, env_fn in zip(self.workers, self.env_fns)
+            Process(target=worker, args=(child, env_fn, i))
+            for i, child, env_fn in zip(range(seed, seed + self.num_envs), self.workers, self.env_fns)
         ]
         
         for proc in self.procs:

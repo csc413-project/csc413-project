@@ -17,8 +17,8 @@ from data import TrajectoryDataset, Collector, VectorCollector
 from envs import DMCEnv, VectorDMCEnv, SequentialDMCEnv
 from models.agent import AgentModel
 
-def create_env():
-    return DMCEnv(domain_name="cartpole", task_name="swingup")
+def create_env(seed: int = 0):
+    return DMCEnv(domain_name="cartpole", task_name="swingup", seed=seed)
 
 if __name__ == "__main__":
     """
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     # Check the amount of time needed to do this
     start = timeit.default_timer()
 
-    with VectorDMCEnv(create_env, num_envs=num_envs) as vector_env:
+    with VectorDMCEnv(create_env, num_envs=num_envs, seed=0) as vector_env:
         # Do stuff with vector_env
         agent = AgentModel(action_shape=(1, ))
 
