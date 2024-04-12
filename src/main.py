@@ -44,6 +44,7 @@ class DreamerConfig:
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
     load_model_path: Optional[str] = None
+    debug: bool = False,  # if True, then wandb will be disabled
     # training setting
     training_epochs: int = 1100  # number of training episodes
     prefill_episodes = 5  # number of episodes to prefill the dataset
@@ -78,6 +79,7 @@ def main():
         config=asdict(config),
         name=f"dreamer-{config.domain_name}_{config.task_name}",
         entity="scott-reseach",
+        mode="disabled" if config.debug else "online",
     )
     wandb.define_metric("env_steps")
     wandb.define_metric("agent/*", step_metric="env_steps")
