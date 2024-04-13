@@ -48,7 +48,7 @@ class DreamerConfig:
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
     load_model_path: Optional[str] = None
-    debug: bool = False,  # if True, then wandb will be disabled
+    debug: bool = False  # if True, then wandb will be disabled
     # training setting
     training_epochs: int = 1100  # number of training episodes
     prefill_episodes = 5  # number of episodes to prefill the dataset
