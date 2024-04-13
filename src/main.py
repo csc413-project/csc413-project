@@ -19,7 +19,7 @@ ENV_SETTINGS = {
     "acrobot": ["swingup"],
     "cartpole": ["swingup", "swingup_sparse"],
     "cheetah": ["run"],
-    "finger": ["turn_easy", "turn_hard"],
+    "finger": ["turn_easy", "turn_hard", "spin"],
     "hopper": ["hop"],
 }
 
@@ -30,6 +30,7 @@ ENV_PREFERRED_CAMERA = {
     ("cheetah", "run"): 0,
     ("finger", "turn_easy"): 1,
     ("finger", "turn_hard"): 1,
+    ("finger", "spin"): 1,
     ("hopper", "hop"): 0,
 }
 
