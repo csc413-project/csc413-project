@@ -20,5 +20,6 @@ sudo apt-get install libosmesa6 libgl1-mesa-glx libglfw3
 
 Modify the config in `main.py` and then
 ```bash
+export MUJOCO_GL="osmesa"
 python3 main.py
 ```
