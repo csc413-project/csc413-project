@@ -27,20 +27,21 @@ ENV_PREFERRED_CAMERA = {
     ("hopper", "hop"): 0,
 }
 
-def discount_cumsum(x, discount):
-    """
-    Compute discounted cumulative sums of vectors.
-    input:
-        vector x: [x0, x1, x2]
-    output:
-        [x0 + discount * x1 + discount^2 * x2, x1 + discount * x2, x2]
-    """
-    return np.array([sum(x[j] * (discount ** j) for j in range(i, len(x)))
-                     for i in range(len(x))])
+
+
+def compute_gae(rewards, values, gamma, lambda_):
+    next_values = np.roll(values, -1, axis=1)  # simulate next values as a shifted version of values
+    deltas = rewards + gamma * next_values - values
+    gae = 0.0
+    advantages = []
+    for delta in reversed(deltas):
+        gae = delta + gamma * lambda_ * gae
+        advantages.insert(0, gae)
+    return np.array(advantages)
 
 
 @dataclass
-class DreamerConfig:
+class ChaplinConfig:
     # env setting
     domain_name: str = "cheetah"
     task_name: str = "run"
@@ -82,7 +83,7 @@ class DreamerConfig:
 
 
 def main():
-    config = DreamerConfig()
+    config = ChaplinConfig()
 
     # wandb.login(key=os.getenv("WANDB_KEY"))
     wandb.init(
