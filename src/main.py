@@ -13,17 +13,24 @@ from envs import DMCEnv
 from models.agent import AgentModel
 from utils import denormalize_images, count_env_steps
 
+os.putenv("MUJOCO_GL", "osmesa")
+
 ENV_SETTINGS = {
-    "cartpole": ["swingup"],
+    "acrobot": ["swingup"],
+    "cartpole": ["swingup", "swingup_sparse"],
     "cheetah": ["run"],
-    "finger": ["turn_hard"],
+    "finger": ["turn_easy", "turn_hard", "spin"],
     "hopper": ["hop"],
 }
 
 ENV_PREFERRED_CAMERA = {
+    ("acrobot", "swingup"): 0,
     ("cartpole", "swingup"): None,
+    ("cartpole", "swingup_sparse"): None,
     ("cheetah", "run"): 0,
-    ("finger", "turn_hard"): 0,
+    ("finger", "turn_easy"): 1,
+    ("finger", "turn_hard"): 1,
+    ("finger", "spin"): 1,
     ("hopper", "hop"): 0,
 }
 
@@ -42,6 +49,7 @@ class DreamerConfig:
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
     load_model_path: Optional[str] = None
+    debug: bool = False  # if True, then wandb will be disabled
     # training setting
     training_epochs: int = 1100  # number of training episodes
     prefill_episodes = 5  # number of episodes to prefill the dataset
@@ -76,6 +84,7 @@ def main():
         config=asdict(config),
         name=f"dreamer-{config.domain_name}_{config.task_name}",
         entity="scott-reseach",
+        mode="disabled" if config.debug else "online",
     )
     wandb.define_metric("env_steps")
     wandb.define_metric("agent/*", step_metric="env_steps")
