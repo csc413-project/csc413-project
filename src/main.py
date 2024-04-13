@@ -16,16 +16,20 @@ from utils import denormalize_images, count_env_steps
 os.putenv("MUJOCO_GL", "osmesa")
 
 ENV_SETTINGS = {
-    "cartpole": ["swingup"],
+    "acrobot": ["swingup"],
+    "cartpole": ["swingup", "swingup_sparse"],
     "cheetah": ["run"],
-    "finger": ["turn_hard"],
+    "finger": ["turn_easy", "turn_hard"],
     "hopper": ["hop"],
 }
 
 ENV_PREFERRED_CAMERA = {
+    ("acrobot", "swingup"): 0,
     ("cartpole", "swingup"): None,
+    ("cartpole", "swingup_sparse"): None,
     ("cheetah", "run"): 0,
-    ("finger", "turn_hard"): 0,
+    ("finger", "turn_easy"): 1,
+    ("finger", "turn_hard"): 1,
     ("hopper", "hop"): 0,
 }
 
