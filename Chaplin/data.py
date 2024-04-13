@@ -386,8 +386,10 @@ class VectorCollector:
                 obs_tensor = torch.tensor(
                     obs.copy(), dtype=torch.float32, device=self.device
                 )
+                
+                # action, action_dist, value, reward, state
                         
-                action_tensor, action_dist, value, i_reward, state, _, _, _ = agent(
+                action_tensor, action_dist, value, i_reward, state = agent(
                     obs_tensor, prev_action, prev_state
                 )
     

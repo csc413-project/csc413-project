@@ -74,8 +74,6 @@ class Chaplin:
         self.value_optimizer.zero_grad()
         self.action_optimizer.zero_grad()
         ppo_loss = self.calculate_ppo_loss(observations, actions, rewards, values, log_probs_old, advantages)
-        print(ppo_loss.shape)
-        print('-' * 100)
         print(ppo_loss)
         ppo_loss.backward()
         # nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)  # Clipping gradients to avoid exploding gradients
@@ -171,7 +169,7 @@ class Chaplin:
 
         # Calculate the new log probabilities and value estimates
         dist_now = self.agent.action_decoder(features)
-        dist_entropy = dist_now.entropy().sum(1, keepdim=True)  # Summing entropy across all action dimensions
+        # dist_entropy = dist_now.entropy().sum(1, keepdim=True)  # Summing entropy across all action dimensions
 
         # Clip actions to valid range
         actions_clipped = torch.clamp(actions, -0.99, 0.99)
@@ -193,9 +191,12 @@ class Chaplin:
 
         # Normalize advantages
         # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
+        dist_entropy = 0.5 * (torch.log(2 * torch.pi * dist_now.std().pow(2)) + 1).sum(-1, keepdim=True)
+        dist_entropy = torch.mean(dist_entropy)
         # Total loss
-        ppo_loss = policy_loss + c1 * value_loss - c2 * dist_entropy.mean()
+        ppo_loss = torch.mean(policy_loss) + c1 * value_loss - c2 * dist_entropy
+
+
 
         return ppo_loss
 
