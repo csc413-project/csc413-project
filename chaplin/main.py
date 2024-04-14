@@ -1,4 +1,5 @@
 import os
+import threading
 from dataclasses import dataclass, asdict
 from typing import Tuple, Optional, Dict
 
@@ -66,9 +67,9 @@ class ChaplinConfig:
     prefill_episodes = 5  # number of episodes to prefill the dataset
     dreamer_batch_size: int = 50  # batch size for training
     dreamer_batch_length: int = 50  # sequence length of each training batch
-    dreamer_training_steps: int = 20  # number of training steps
+    dreamer_training_steps: int = 30  # number of training steps
     # ppo setting
-    ppo_T: int = 100  # number of steps to collect in each iteration for each env
+    ppo_T: int = 200  # number of steps to collect in each iteration for each env
     ppo_minibatch_size: int = 64
     ppo_minibatch_length: int = 32
     ppo_epochs: int = 5  # sample reuse
@@ -217,7 +218,7 @@ def main():
             wandb.log(
                 {
                     "agent/training_return": np.mean(
-                        np.sum(current_raw_tau["reward"], axis=1)
+                        np.sum(current_raw_tau["reward"], axis=0)
                     ),
                 }
             )
@@ -226,7 +227,9 @@ def main():
             )
             for tau in finished_taus:
                 buffer.add_trajectory(tau)
-                tau.save(os.path.join(config.data_dir, f"{i}.npz"))
+                threading.Thread(
+                    target=lambda: tau.save(os.path.join(config.data_dir, f"{i}.npz"))
+                ).start()
             current_raw_tau = None
         else:
             if current_raw_tau is None:
