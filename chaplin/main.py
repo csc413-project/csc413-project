@@ -52,8 +52,8 @@ class ChaplinConfig:
     camera_id: int = ENV_PREFERRED_CAMERA[(domain_name, task_name)]
     render_kwargs: Dict = None
     # general setting
-    # algorithm: str = "chaplin"
-    algorithm: str = "ppo"
+    algorithm: str = "chaplin"
+    # algorithm: str = "ppo"
     base_dir = f"/home/scott/tmp/{algorithm}/{domain_name}_{task_name}/0/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
@@ -68,13 +68,13 @@ class ChaplinConfig:
     gae_lambda: float = 0.95
     # dreamer setting
     prefill_episodes = 5  # number of episodes to prefill the dataset
-    dreamer_batch_size: int = 128  # batch size for training
+    dreamer_batch_size: int = 100  # batch size for training
     dreamer_batch_length: int = 50  # sequence length of each training batch
     dreamer_training_steps: int = 100  # number of training steps
     model_lr: float = 1e-3  # learning rate for the world model
     # ppo setting
     ppo_T: int = 200  # number of steps to collect in each iteration for each env
-    ppo_minibatch_size: int = 256
+    ppo_minibatch_size: int = 100
     ppo_minibatch_length: int = 50
     ppo_epochs: int = 3  # sample reuse
     ppo_training_steps: int = 8  # number of training steps

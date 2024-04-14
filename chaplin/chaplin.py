@@ -7,7 +7,7 @@ import wandb
 
 from models.agent import ChaplinAgent
 from models.rssm import get_feat, get_dist, apply_states
-from utils import denormalize_images, merge_images_in_chunks
+from utils import denormalize_images, merge_images_in_chunks, FreezeParameters
 
 
 class Chaplin:
@@ -101,7 +101,7 @@ class Chaplin:
         rewards_to_go = torch.transpose(rewards_to_go, 0, 1)
         advantages = torch.transpose(advantages, 0, 1)
 
-        self.model_optimizer.zero_grad()
+        # self.model_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
         self.action_optimizer.zero_grad()
         ppo_loss = self.calculate_ppo_loss(
@@ -117,7 +117,7 @@ class Chaplin:
         nn.utils.clip_grad_norm_(self.model_modules.parameters(), 1.0)
         nn.utils.clip_grad_norm_(self.agent.action_decoder.parameters(), 1.0)
         nn.utils.clip_grad_norm_(self.agent.value_model.parameters(), 1.0)
-        self.model_optimizer.step()
+        # self.model_optimizer.step()
         self.value_optimizer.step()
         self.action_optimizer.step()
 
@@ -142,17 +142,18 @@ class Chaplin:
         c2 = self.ppo_entropy_coef
 
         seq_len, batch_size = observations.shape[:2]
-        # compute embedding
-        obs_embed = self.agent.observation_encoder(observations)
-        # init prev state
-        prev_state = self.agent.rssm.create_initial_state(
-            batch_size, device=self.device
-        )
-        # Get prior and posterior and initialize stuff
-        prior, posterior = self.agent.rssm.observe(
-            seq_len, obs_embed, actions, prev_state
-        )
-        features = get_feat(posterior)
+        with FreezeParameters(self.model_modules):
+            # compute embedding
+            obs_embed = self.agent.observation_encoder(observations)
+            # init prev state
+            prev_state = self.agent.rssm.create_initial_state(
+                batch_size, device=self.device
+            )
+            # Get prior and posterior and initialize stuff
+            prior, posterior = self.agent.rssm.observe(
+                seq_len, obs_embed, actions, prev_state
+            )
+            features = get_feat(posterior)
 
         # compute surrogate loss
         dist_now = self.agent.action_decoder(features)
