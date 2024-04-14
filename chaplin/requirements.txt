@@ -1,0 +1,9 @@
+numpy
+matplotlib
+tqdm
+dm_control
+torch
+gymnasium
+opencv-python
+moviepy
+wandb
