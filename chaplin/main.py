@@ -67,7 +67,7 @@ class ChaplinConfig:
     prefill_episodes = 5  # number of episodes to prefill the dataset
     dreamer_batch_size: int = 50  # batch size for training
     dreamer_batch_length: int = 50  # sequence length of each training batch
-    dreamer_training_steps: int = 30  # number of training steps
+    dreamer_training_steps: int = 100  # number of training steps
     # ppo setting
     ppo_T: int = 200  # number of steps to collect in each iteration for each env
     ppo_minibatch_size: int = 64
@@ -75,7 +75,7 @@ class ChaplinConfig:
     ppo_epochs: int = 5  # sample reuse
     ppo_training_steps: int = 4  # number of training steps
     # testing setting
-    test_every: int = 8  # test (and save model) every n iterations
+    test_every: int = 10  # test (and save model) every n iterations
     test_num_envs: int = 5  # number of parallel test environments
     test_env_starting_seed: int = 1108  # starting seed for test environments
     # collector setting
