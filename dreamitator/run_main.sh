@@ -7,4 +7,4 @@ conda activate csc413proj
 
 export MUJOCO_GL="osmesa"
 # Execute Python script
-python dreamer/main.py
+python dreamitator/main.py

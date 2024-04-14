@@ -3,8 +3,8 @@ import torch
 import torch.distributions as td
 import torch.nn as nn
 import torch.optim as optim
-import wandb
 
+import wandb
 from models.agent import AgentModel
 from models.rssm import get_feat, get_dist, apply_states
 from utils import FreezeParameters, denormalize_images, merge_images_in_chunks
@@ -16,6 +16,7 @@ class Dreamer:
         self,
         agent: AgentModel,
         model_lr=6e-4,
+        imitator_lr=1e-4,
         action_lr=8e-5,
         value_lr=8e-5,
         discount=0.99,
@@ -39,11 +40,19 @@ class Dreamer:
                 self.agent.observation_decoder,
                 self.agent.rssm,
                 self.agent.reward_model,
-                self.agent.imitator_decoder
             ]
         )
         self.model_optimizer = optim.Adam(
-            self.model_modules.parameters(),
+            [
+                {
+                    "params": self.model_modules.parameters(),
+                    "lr": model_lr,
+                },
+                {
+                    "params": self.agent.imitator_decoder.parameters(),
+                    "lr": imitator_lr,
+                },
+            ],
             lr=model_lr,
         )
         self.action_optimizer = optim.Adam(
@@ -74,19 +83,15 @@ class Dreamer:
         )
 
         model_loss.backward()
-        nn.utils.clip_grad_norm_(self.model_modules.parameters(), 100.0)
+        nn.utils.clip_grad_norm_(self.model_modules.parameters(), 1.0)
         actor_loss.backward()
-        nn.utils.clip_grad_norm_(self.agent.action_decoder.parameters(), 100.0)
+        nn.utils.clip_grad_norm_(self.agent.action_decoder.parameters(), 1.0)
         value_loss.backward()
-        nn.utils.clip_grad_norm_(self.agent.value_model.parameters(), 100.0)
+        nn.utils.clip_grad_norm_(self.agent.value_model.parameters(), 1.0)
 
         self.model_optimizer.step()
         self.action_optimizer.step()
         self.value_optimizer.step()
-        
-        wandb.log({
-            "train/imitator_grad_norm": self.agent.imitator_decoder.feedforward_model[0].weight.grad.norm().item(),
-        })
 
         self.training_steps += 1
 
@@ -122,13 +127,16 @@ class Dreamer:
         imitator_pred = self.agent.imitator_decoder(
             torch.cat((posterior.stoch, imitator_state), dim=-1)
         )
-        imitator_loss = -torch.mean(imitator_pred.log_prob(torch.clamp(actions, -0.9999, 0.9999)))
+        normal_actions = torch.atanh(torch.clamp(actions, -0.9999, 0.9999))
+        imitator_loss = -torch.mean(
+            imitator_pred.dist.base_dist.base_dist.log_prob(normal_actions)
+        )
         # TODO: also add pcont
         kl_div = torch.maximum(
             torch.mean(td.kl_divergence(posterior_dist, prior_dist)),
             torch.tensor(self.free_nats, dtype=torch.float32, device=self.device),
         )  # to prevent penalize small KL divergence
-        model_loss = image_loss + reward_loss + imitator_loss + self.kl_beta * kl_div
+        model_loss = image_loss + imitator_loss + reward_loss + self.kl_beta * kl_div
 
         # produce a gradient-free posterior for action network
         with torch.no_grad():

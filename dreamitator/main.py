@@ -45,7 +45,7 @@ class DreamerConfig:
     camera_id: int = ENV_PREFERRED_CAMERA[(domain_name, task_name)]
     render_kwargs: Dict = None
     # general setting
-    base_dir = f"/home/scott/tmp/dreamitator/{domain_name}_{task_name}/0/"
+    base_dir = f"/home/scott/tmp/dreamitator/{domain_name}_{task_name}/2/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
     load_model_path: Optional[str] = None
