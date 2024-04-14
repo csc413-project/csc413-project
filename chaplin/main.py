@@ -266,7 +266,6 @@ def main():
         wandb.log(
             {
                 "env_steps": total_env_steps,
-                "agent/training_return": sum(raw["reward"]),
             }
         )
 
