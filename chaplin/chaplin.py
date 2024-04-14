@@ -7,7 +7,7 @@ import wandb
 
 from models.agent import ChaplinAgent
 from models.rssm import get_feat, get_dist, apply_states
-from utils import denormalize_images, merge_images_in_chunks, FreezeParameters
+from utils import denormalize_images, merge_images_in_chunks
 
 
 class Chaplin:
@@ -17,13 +17,16 @@ class Chaplin:
         agent: ChaplinAgent,
         model_lr=6e-4,
         action_lr=8e-5,
-        value_lr=8e-5,
+        value_lr=5e-4,
         imitator_lr=8e-5,
         discount=0.99,
         discount_lambda=0.95,
         horizon=15,
         free_nats=3,
         kl_beta=1.0,
+        ppo_epsilon=0.2,
+        ppo_value_loss_coef=1.0,
+        ppo_entropy_coef=0.01,
         device: str = "cuda",
     ):
         self.agent = agent.to(device)
@@ -33,6 +36,9 @@ class Chaplin:
         self.free_nats = free_nats
         self.kl_beta = kl_beta
         self.device = device
+        self.ppo_epsilon = ppo_epsilon
+        self.ppo_value_loss_coef = ppo_value_loss_coef
+        self.ppo_entropy_coef = ppo_entropy_coef
 
         self.ppo_training_steps = 0
         self.dreamer_training_steps = 0
@@ -95,7 +101,7 @@ class Chaplin:
         rewards_to_go = torch.transpose(rewards_to_go, 0, 1)
         advantages = torch.transpose(advantages, 0, 1)
 
-        # self.model_optimizer.zero_grad()
+        self.model_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
         self.action_optimizer.zero_grad()
         ppo_loss = self.calculate_ppo_loss(
@@ -108,11 +114,13 @@ class Chaplin:
             advantages,
         )
         ppo_loss.backward()
-        # nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)  # Clipping gradients to avoid exploding gradients
-        # self.model_optimizer.step()
+        nn.utils.clip_grad_norm_(self.model_modules.parameters(), 1.0)
+        nn.utils.clip_grad_norm_(self.agent.action_decoder.parameters(), 1.0)
+        nn.utils.clip_grad_norm_(self.agent.value_model.parameters(), 1.0)
+        self.model_optimizer.step()
         self.value_optimizer.step()
         self.action_optimizer.step()
-        
+
         self.ppo_training_steps += 1
 
     def calculate_ppo_loss(
@@ -129,23 +137,22 @@ class Chaplin:
         Inputs are of shape (seq_len, batch_size, ...)
         """
 
-        epsilon = 0.2  # Clip parameter epsilon
-        c1 = 1.0  # Value difference loss coefficient
-        c2 = 0.01  # Entropy bonus coefficient
+        epsilon = self.ppo_epsilon
+        c1 = self.ppo_value_loss_coef
+        c2 = self.ppo_entropy_coef
 
         seq_len, batch_size = observations.shape[:2]
-        with FreezeParameters(self.model_modules):
-            # compute embedding
-            obs_embed = self.agent.observation_encoder(observations)
-            # init prev state
-            prev_state = self.agent.rssm.create_initial_state(
-                batch_size, device=self.device
-            )
-            # Get prior and posterior and initialize stuff
-            prior, posterior = self.agent.rssm.observe(
-                seq_len, obs_embed, actions, prev_state
-            )
-            features = get_feat(posterior)
+        # compute embedding
+        obs_embed = self.agent.observation_encoder(observations)
+        # init prev state
+        prev_state = self.agent.rssm.create_initial_state(
+            batch_size, device=self.device
+        )
+        # Get prior and posterior and initialize stuff
+        prior, posterior = self.agent.rssm.observe(
+            seq_len, obs_embed, actions, prev_state
+        )
+        features = get_feat(posterior)
 
         # compute surrogate loss
         dist_now = self.agent.action_decoder(features)
@@ -321,17 +328,17 @@ class Chaplin:
     #     actions = torch.transpose(actions, 0, 1)
     #     rewards = torch.transpose(rewards, 0, 1).unsqueeze(-1)
     #     values = torch.transpose(values, 0, 1).unsqueeze(-1)
-    # 
+    #
     #     self.model_optimizer.zero_grad()
     #     self.action_optimizer.zero_grad()
     #     self.value_optimizer.zero_grad()
     #     self.imitator_optimizer.zero_grad()
-    # 
+    #
     #     # Unbiased state embedding
     #     seq_len, batch_size = observations.shape[:2]
-    # 
+    #
     #     obs_embed = self.agent.observation_encoder(observations)
-    # 
+    #
     #     # init prev state
     #     prev_state = self.agent.rssm.create_initial_state(
     #         batch_size, device=self.device
@@ -340,28 +347,28 @@ class Chaplin:
     #     prior, posterior = self.agent.rssm.observe(
     #         seq_len, obs_embed, actions, prev_state
     #     )  # (seq_len, batch_size, state_dim)
-    # 
+    #
     #     features = get_feat(posterior)
-    # 
+    #
     #     # Embed the actions, values
     #     imitator_features = self.agent.imitator_encoder(obs_embed, actions, values)
-    # 
+    #
     #     # using this to imitate action/values
     #     # Only compute loss for 50 steps +
     #     imitator_features = imitator_features[50:]
     #     imitation_action, imitation_value = self.agent.imitator_action_head(
     #         imitator_features
     #     )
-    # 
+    #
     #     action_redacted = actions[:, 50:, :]
     #     value_redacted = values[:, 50:]
-    # 
+    #
     #     # action_
-    # 
+    #
     #     # compute mse
     #     action_loss = nn.MSELoss()(imitation_action, action_redacted)
     #     value_loss = nn.MSELoss()(imitation_value, value_redacted)
-    # 
+    #
     #     # compute loss
     #     loss = action_loss + value_loss
     #     return loss

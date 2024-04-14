@@ -52,28 +52,37 @@ class ChaplinConfig:
     camera_id: int = ENV_PREFERRED_CAMERA[(domain_name, task_name)]
     render_kwargs: Dict = None
     # general setting
-    base_dir = f"/home/scott/tmp/chaplin/{domain_name}_{task_name}/0/"
+    # algorithm: str = "chaplin"
+    algorithm: str = "ppo"
+    base_dir = f"/home/scott/tmp/{algorithm}/{domain_name}_{task_name}/0/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
     load_model_path: Optional[str] = None
     debug: bool = False  # if True, then wandb will be disabled
     # training setting
+    ppo_only: bool = algorithm == "ppo"  # if True, then only PPO is trained
     train_num_envs: int = 8  # number of parallel training environments
-    iterations: int = 1200  # number of training episodes
+    iterations: int = 2000  # number of training episodes
     training_device = "cuda"  # training device
     gamma: float = 0.99  # discount factor
     gae_lambda: float = 0.95
     # dreamer setting
     prefill_episodes = 5  # number of episodes to prefill the dataset
-    dreamer_batch_size: int = 50  # batch size for training
+    dreamer_batch_size: int = 128  # batch size for training
     dreamer_batch_length: int = 50  # sequence length of each training batch
     dreamer_training_steps: int = 100  # number of training steps
+    model_lr: float = 1e-3  # learning rate for the world model
     # ppo setting
     ppo_T: int = 200  # number of steps to collect in each iteration for each env
-    ppo_minibatch_size: int = 64
-    ppo_minibatch_length: int = 32
-    ppo_epochs: int = 5  # sample reuse
-    ppo_training_steps: int = 4  # number of training steps
+    ppo_minibatch_size: int = 256
+    ppo_minibatch_length: int = 50
+    ppo_epochs: int = 3  # sample reuse
+    ppo_training_steps: int = 8  # number of training steps
+    ppo_epsilon: float = 0.2  # clip ratio
+    ppo_value_loss_coef: float = 1.0
+    ppo_entropy_loss_coef: float = 0.02
+    policy_lr: float = 8e-5  # learning rate for the policy
+    value_lr: float = 5e-4
     # testing setting
     test_every: int = 10  # test (and save model) every n iterations
     test_num_envs: int = 5  # number of parallel test environments
@@ -91,15 +100,22 @@ class ChaplinConfig:
                 "camera_id": self.camera_id,
             }
 
+    def step(self, i: int):
+        """
+        Specify parameter decay schedule here.
+        :param i: current iteration
+        """
+        if i >= 100:
+            self.dreamer_training_steps = 50
+
 
 def main():
     config = ChaplinConfig()
-
     # wandb.login(key=os.getenv("WANDB_KEY"))
     wandb.init(
         project="csc413-proj",
         config=asdict(config),
-        name=f"chaplin-{config.domain_name}_{config.task_name}",
+        name=f"{config.algorithm}-{config.domain_name}_{config.task_name}",
         entity="scott-reseach",
         mode="disabled" if config.debug else "online",
     )
@@ -135,7 +151,18 @@ def main():
     agent = ChaplinAgent(action_shape=action_space.shape)
     if config.load_model_path is not None:
         agent.load_state_dict(torch.load(config.load_model_path))
-    chaplin = Chaplin(agent, device=config.training_device)
+    chaplin = Chaplin(
+        agent,
+        model_lr=config.model_lr,
+        action_lr=config.policy_lr,
+        value_lr=config.value_lr,
+        discount=config.gamma,
+        discount_lambda=config.gae_lambda,
+        ppo_epsilon=config.ppo_epsilon,
+        ppo_value_loss_coef=config.ppo_value_loss_coef,
+        ppo_entropy_coef=config.ppo_entropy_loss_coef,
+        device=config.training_device
+    )
 
     # init buffer
     buffer = ExperienceReplayDataset(
@@ -188,7 +215,7 @@ def main():
             tau.save(os.path.join(config.data_dir, f"pre_{i}.npz"))
 
     # pretrain dreamer
-    if config.load_model_path is None:
+    if config.load_model_path is None and not config.ppo_only:
         chaplin.agent.train()
         for _ in trange(config.dreamer_training_steps, desc="Dreamer Training Steps"):
             obs, action, _, _, reward = next(buffer)[:5]
@@ -209,7 +236,7 @@ def main():
                 prev_state=prev_state,
             )
         )
-        total_env_steps += env_steps * config.action_repeats
+        total_env_steps += env_steps * config.action_repeats * config.train_num_envs
         done = len(raw) == 2
         raw = raw[0]
         if done:
@@ -225,10 +252,12 @@ def main():
             finished_taus = raw_data_to_trajectories(
                 current_raw_tau, True, config.gamma, config.gae_lambda
             )
-            for tau in finished_taus:
+            for j, tau in enumerate(finished_taus):
                 buffer.add_trajectory(tau)
                 threading.Thread(
-                    target=lambda: tau.save(os.path.join(config.data_dir, f"{i}.npz"))
+                    target=lambda: tau.save(
+                        os.path.join(config.data_dir, f"{i}_{j}.npz")
+                    )
                 ).start()
             current_raw_tau = None
         else:
@@ -261,11 +290,14 @@ def main():
                 )
 
         # dreamer update
-        for _ in trange(config.dreamer_training_steps, desc="Dreamer Training Steps"):
-            obs, action, log_prob, value, reward = next(buffer)[:5]
-            # dreamer.imitation_update()
-            chaplin.update_dreamer(obs, action, reward)
+        if not config.ppo_only:
+            for _ in trange(
+                config.dreamer_training_steps, desc="Dreamer Training Steps"
+            ):
+                obs, action, log_prob, value, reward = next(buffer)[:5]
+                chaplin.update_dreamer(obs, action, reward)
 
+        config.step(i)
         wandb.log(
             {
                 "env_steps": total_env_steps,
