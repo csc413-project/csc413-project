@@ -4,6 +4,7 @@ import torch.distributions as td
 import torch.nn as nn
 import torch.optim as optim
 import wandb
+from lookahead import Lookahead
 
 from models.agent import ChaplinAgent
 from models.rssm import get_feat, get_dist, apply_states
@@ -17,7 +18,7 @@ class Chaplin:
         agent: ChaplinAgent,
         model_lr=6e-4,
         action_lr=8e-5,
-        value_lr=8e-5,
+        value_lr=5e-4,
         imitator_lr=8e-5,
         discount=0.99,
         discount_lambda=0.95,
@@ -73,6 +74,11 @@ class Chaplin:
             ],
             lr=imitator_lr,
         )
+        
+        self.model_optimizer = Lookahead(self.model_optimizer, la_steps=5, la_alpha=0.5)
+        self.action_optimizer = Lookahead(self.action_optimizer, la_steps=5, la_alpha=0.5)
+        self.value_optimizer = Lookahead(self.value_optimizer, la_steps=5, la_alpha=0.5)
+        self.imitator_optimizer = Lookahead(self.imitator_optimizer, la_steps=5, la_alpha=0.5)
 
     def update_ppo(
         self,
@@ -95,9 +101,10 @@ class Chaplin:
         rewards_to_go = torch.transpose(rewards_to_go, 0, 1)
         advantages = torch.transpose(advantages, 0, 1)
 
-        # self.model_optimizer.zero_grad()
+        self.model_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
         self.action_optimizer.zero_grad()
+        
         ppo_loss = self.calculate_ppo_loss(
             observations,
             actions,
@@ -106,10 +113,16 @@ class Chaplin:
             log_probs_old,
             rewards_to_go,
             advantages,
+            freeze_encoder=False
         )
         ppo_loss.backward()
-        # nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)  # Clipping gradients to avoid exploding gradients
-        # self.model_optimizer.step()
+        nn.utils.clip_grad_norm_(self.model_modules.parameters(),
+                                 1.0)  # Clipping gradients to avoid exploding gradients
+        
+        nn.utils.clip_grad_norm_(self.agent.action_decoder.parameters(), 1.0)
+        nn.utils.clip_grad_norm_(self.agent.value_model.parameters(), 1.0)
+        
+        self.model_optimizer.step()
         self.value_optimizer.step()
         self.action_optimizer.step()
         
@@ -124,6 +137,7 @@ class Chaplin:
         log_probs_old,
         rewards_to_go,
         advantages,
+        freeze_encoder=True,
     ):
         """
         Inputs are of shape (seq_len, batch_size, ...)
@@ -131,11 +145,30 @@ class Chaplin:
 
         epsilon = 0.2  # Clip parameter epsilon
         c1 = 1.0  # Value difference loss coefficient
+        # c2 = 0  # Entropy bonus coefficient
         c2 = 0.01  # Entropy bonus coefficient
 
         seq_len, batch_size = observations.shape[:2]
-        with FreezeParameters(self.model_modules):
-            # compute embedding
+        if freeze_encoder:
+            with FreezeParameters(self.model_modules):
+                # compute embedding
+                obs_embed = self.agent.observation_encoder(observations)
+                # init prev state
+                prev_state = self.agent.rssm.create_initial_state(
+                    batch_size, device=self.device
+                )
+                # Get prior and posterior and initialize stuff
+                prior, posterior = self.agent.rssm.observe(
+                    seq_len, obs_embed, actions, prev_state
+                )
+                features = get_feat(posterior)
+                
+                mlp_latent = self.agent.latent_mlp(obs_embed)
+                # concat feature with mlp_latent
+                features = torch.cat([features, mlp_latent], dim=-1)
+
+                
+        else:
             obs_embed = self.agent.observation_encoder(observations)
             # init prev state
             prev_state = self.agent.rssm.create_initial_state(
@@ -146,8 +179,14 @@ class Chaplin:
                 seq_len, obs_embed, actions, prev_state
             )
             features = get_feat(posterior)
+            
+            latent_emb = self.agent.latent_mlp(obs_embed)
+            # concat feature with mlp_latent
+            features = torch.cat([features, latent_emb], dim=-1)
 
         # compute surrogate loss
+        # print(features.shape)
+        
         dist_now = self.agent.action_decoder(features)
         logprob_now = dist_now.log_prob(actions)
         ratio = torch.exp(logprob_now - log_probs_old)
@@ -157,10 +196,13 @@ class Chaplin:
 
         # value loss
         new_values = self.agent.value_model(features).squeeze(-1)
-        value_loss = ((new_values - rewards_to_go) ** 2).mean()
+        value_loss = 0.5 * ((new_values - rewards_to_go) ** 2).mean()
 
         # entropy loss
         dist_entropy = dist_now.entropy().mean()
+        
+        # instead, use the stdev
+        # dist_entropy = dist_now.stddev().mean()
 
         # total loss
         ppo_loss = policy_loss + c1 * value_loss - c2 * dist_entropy
@@ -217,7 +259,7 @@ class Chaplin:
         )  # (seq_len, batch_size, state_dim)
         prior_dist, posterior_dist = get_dist(prior), get_dist(posterior)
         features = get_feat(posterior)
-
+        
         image_pred = self.agent.observation_decoder(features)
         image_loss = -torch.mean(image_pred.log_prob(observations))
         reward_pred = self.agent.reward_model(features)
@@ -269,6 +311,8 @@ class Chaplin:
                     45, actions[5:, i].reshape(45, 1, -1), posterior
                 )
                 features = get_feat(states)
+                
+                
                 pred_images = self.agent.observation_decoder(features)
                 pred_images = np.transpose(
                     np.squeeze(

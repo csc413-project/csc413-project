@@ -52,27 +52,27 @@ class ChaplinConfig:
     camera_id: int = ENV_PREFERRED_CAMERA[(domain_name, task_name)]
     render_kwargs: Dict = None
     # general setting
-    base_dir = f"/home/scott/tmp/chaplin/{domain_name}_{task_name}/0/"
+    base_dir = f"/home/blair/tmp/chaplin/{domain_name}_{task_name}/1/"
     data_dir: str = os.path.join(base_dir, "episodes")  # where to store trajectories
     model_dir: str = os.path.join(base_dir, "models")  # where to store models
     load_model_path: Optional[str] = None
-    debug: bool = False  # if True, then wandb will be disabled
+    debug: bool = True  # if True, then wandb will be disabled
     # training setting
-    train_num_envs: int = 8  # number of parallel training environments
+    train_num_envs: int = 12  # number of parallel training environments
     iterations: int = 1200  # number of training episodes
     training_device = "cuda"  # training device
     gamma: float = 0.99  # discount factor
     gae_lambda: float = 0.95
     # dreamer setting
     prefill_episodes = 5  # number of episodes to prefill the dataset
-    dreamer_batch_size: int = 50  # batch size for training
+    dreamer_batch_size: int = 100  # batch size for training
     dreamer_batch_length: int = 50  # sequence length of each training batch
     dreamer_training_steps: int = 100  # number of training steps
     # ppo setting
     ppo_T: int = 200  # number of steps to collect in each iteration for each env
     ppo_minibatch_size: int = 64
-    ppo_minibatch_length: int = 32
-    ppo_epochs: int = 5  # sample reuse
+    ppo_minibatch_length: int = 64
+    ppo_epochs: int = 10  # sample reuse
     ppo_training_steps: int = 4  # number of training steps
     # testing setting
     test_every: int = 10  # test (and save model) every n iterations
@@ -99,7 +99,7 @@ def main():
     wandb.init(
         project="csc413-proj",
         config=asdict(config),
-        name=f"chaplin-{config.domain_name}_{config.task_name}",
+        name=f"CHAPLIN-{config.domain_name}_{config.task_name}",
         entity="scott-reseach",
         mode="disabled" if config.debug else "online",
     )
@@ -191,8 +191,9 @@ def main():
     if config.load_model_path is None:
         chaplin.agent.train()
         for _ in trange(config.dreamer_training_steps, desc="Dreamer Training Steps"):
-            obs, action, _, _, reward = next(buffer)[:5]
-            chaplin.update_dreamer(obs, action, reward)
+            # obs, action, _, _, reward = next(buffer)[:5]
+            pass
+            # chaplin.update_dreamer(obs, action, reward)
 
     current_raw_tau = None
     prev_obs, prev_action, prev_state = None, None, None
@@ -261,7 +262,9 @@ def main():
                 )
 
         # dreamer update
-        for _ in trange(config.dreamer_training_steps, desc="Dreamer Training Steps"):
+        dreamer_update_steps = config.dreamer_training_steps if i < 100 else 40
+        
+        for _ in trange(dreamer_update_steps, desc="Dreamer Training Steps"):
             obs, action, log_prob, value, reward = next(buffer)[:5]
             # dreamer.imitation_update()
             chaplin.update_dreamer(obs, action, reward)

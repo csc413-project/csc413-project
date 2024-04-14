@@ -36,6 +36,7 @@ class Trajectory:
 
         self.observations = np.asarray(tau["obs"])
         self.actions = np.asarray(tau["action"])
+        # self.log_probs = np.asarray(tau["log_prob"])
         self.log_probs = np.asarray(tau["log_prob"]).flatten()
         self.rewards = np.asarray(tau["reward"]).flatten()
         self.values = np.asarray(tau["value"]).flatten()
@@ -48,6 +49,7 @@ class Trajectory:
         else:
             self.advantages = None
         # sanity check: they should have the same length
+            
         assert (
             len(self.observations)
             == len(self.actions)
@@ -55,7 +57,7 @@ class Trajectory:
             == len(self.rewards)
             == len(self.values)
         )
-
+ 
     def compute_advantages(self, gamma: float, gae_lambda: float) -> None:
         if self.advantages is not None and self.rewards_to_go is not None:
             return
@@ -173,6 +175,7 @@ class ExperienceReplayDataset:
             (buffer_size, max_episode_length, action_size), dtype=np.float32
         )
         self.values = np.empty((buffer_size, max_episode_length), dtype=np.float32)
+        # self.log_prob = np.empty((buffer_size, max_episode_length, action_size), dtype=np.float32)
         self.log_prob = np.empty((buffer_size, max_episode_length), dtype=np.float32)
         self.rewards = np.empty((buffer_size, max_episode_length), dtype=np.float32)
         self.rewards_to_go = np.empty(

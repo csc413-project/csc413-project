@@ -48,11 +48,20 @@ class ChaplinAgent(nn.Module):
             deterministic_size,
             hidden_size,
         )
+        
+        self.latent_mlp = nn.Sequential(
+            nn.Linear(encoder_embed_size, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+        )
+            
 
         # Policy model
         self.action_decoder = ActionDecoder(
             np.prod(action_shape).item(),
-            feature_size,
+            feature_size + 128,
             action_hidden_size,
             action_layers,
             action_dist,
@@ -72,33 +81,37 @@ class ChaplinAgent(nn.Module):
 
         # Value model
         self.value_model = DenseModel(
-            feature_size, value_shape, value_layers, value_hidden, dist=None
+            feature_size+128, value_shape, value_layers, value_hidden, dist=None
         )
 
         # Representation model
         self.observation_decoder = ObservationDecoder(
-            feature_size=feature_size, obs_shape=obs_image_shape
+            feature_size=(feature_size), obs_shape=obs_image_shape
         )
         self.reward_model = DenseModel(
-            feature_size, reward_shape, reward_layers, reward_hidden
+            (feature_size), reward_shape, reward_layers, reward_hidden
         )
 
+        # takes in 1. previous state, 2. previous action, 3. previous value
+
         # Imitator models
+        imitator_encoder_size = feature_size
         self.imitator_encoder = nn.GRU(
-            input_size=feature_size,
+            input_size=(feature_size + 256),
             hidden_size=imitator_hidden,
             num_layers=imitator_layers,
             batch_first=True,
         )
         self.imitator_policy = ActionDecoder(
             np.prod(action_shape).item(),
-            imitator_hidden,
+            (imitator_hidden + 256),
             action_hidden_size,
             action_layers,
             action_dist,
         )
+        
         self.imitator_value = DenseModel(
-            imitator_hidden, value_shape, value_layers, value_hidden
+            (imitator_hidden + 256), value_shape, value_layers, value_hidden
         )
 
     def forward(
@@ -109,23 +122,38 @@ class ChaplinAgent(nn.Module):
     ):
         obs_embedded = self.observation_encoder(observation)
         state = self.get_state_representation(obs_embedded, prev_action, prev_state)
+        mlp_latent = self.latent_mlp(obs_embedded)
 
         feature = get_feat(state)
+        # concat feature with mlp_latent
+        
+        feature = torch.cat([feature, mlp_latent], dim=-1)
 
         action, action_dist = self.policy(feature)
         # action = self.exploration(action)
 
         value = self.value_model(feature)
-        reward = self.reward_model(feature)
+        # reward = self.reward_model(feature)
+        
+        reward = None
+        
         return action, action_dist, value, reward, state
 
     def policy(self, feat):
+        # discretized action space
         action_dist = self.action_decoder(feat)
         if self.explore:
-            action = action_dist.rsample()
+            print(action_dist)
+            print(type(action_dist))
+            # shape = bs, 10
+            softmax_logit = torch.nn.functional.log_softmax(action_dist, dim=-1)
+            action = torch.distributions.Categorical(logits=softmax_logit).sample()
+            # action = action_dist.rsample()
         else:
-            action = action_dist.mode()
-        action = torch.clamp(action, min=-0.9999, max=0.9999)
+            # pick argmax
+            action = torch.argmax(action_dist.probs, dim=-1)
+            # action = action_dist.mode()
+        # action = torch.clamp(action, min=-0.9999, max=0.9999)
         return action, action_dist
 
     def get_state_representation(self, obs_embed, prev_action, prev_state):

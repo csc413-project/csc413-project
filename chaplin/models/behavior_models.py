@@ -119,11 +119,12 @@ class ActionDecoder(nn.Module):
         feature_size,
         hidden_size,
         layers,
-        dist: str = "tanh_normal",
+        dist: str = "discrete",
         activation=nn.ELU,
         min_std=1e-4,
         init_std=5,
         mean_scale=5,
+        discretize_blocks=10,
     ):
         super().__init__()
         self.action_size = action_size
@@ -137,6 +138,7 @@ class ActionDecoder(nn.Module):
         self.mean_scale = mean_scale
         self.feedforward_model = self.build_model()
         self.raw_init_std = np.log(np.exp(self.init_std) - 1)
+        self.dicrete_blocks = discretize_blocks
 
     def build_model(self):
         model = [nn.Linear(self.feature_size, self.hidden_size)]
@@ -148,12 +150,20 @@ class ActionDecoder(nn.Module):
             model += [nn.Linear(self.hidden_size, self.action_size * 2)]
         elif self.dist == "one_hot" or self.dist == "relaxed_one_hot":
             model += [nn.Linear(self.hidden_size, self.action_size)]
+        elif self.dist == "discrete":
+            model += [nn.Linear(self.hidden_size, self.action_size * self.discretize_blocks)]
         else:
             raise NotImplementedError(f"{self.dist} not implemented")
         return nn.Sequential(*model)
 
     def forward(self, state_features):
         x = self.feedforward_model(state_features)
+        
+        if self.dist == "discrete":
+            dist = td.Categorical(logits=x)
+            print(dist)
+            return dist
+            
         if self.dist == "tanh_normal":
             mean, std = torch.chunk(x, 2, -1)
             mean = self.mean_scale * torch.tanh(mean / self.mean_scale)

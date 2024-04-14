@@ -2,6 +2,56 @@ import torch
 import torch.distributions as td
 import torch.nn as nn
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class PatchEmbedding(nn.Module):
+    def __init__(self, in_channels=3, patch_size=8, emb_size=64, img_size=64):
+        super().__init__()
+        self.patch_size = patch_size
+        self.emb_size = emb_size
+        num_patches = (img_size // patch_size) ** 2
+
+        self.projection = nn.Sequential(
+            # Using a convolution to implement patch embedding
+            nn.Conv2d(in_channels, emb_size, kernel_size=patch_size, stride=patch_size),
+            nn.Flatten(2)  # Flattening height and width into "patch" dimension
+        )
+
+        # Positional embedding
+        self.positions = nn.Parameter(torch.randn(num_patches, emb_size))
+
+    def forward(self, x):
+        x = self.projection(x)  # [B, E, N] B=batch size, E=embedding dim, N=num_patches
+        x = x.permute(0, 2, 1)  # [B, N, E]
+        return x + self.positions
+
+class VisionTransformer(nn.Module):
+    def __init__(self, img_size=64, patch_size=8, emb_size=64, num_heads=4, num_layers=4, feature_size=512):
+        super().__init__()
+        self.patch_embedding = PatchEmbedding(patch_size=patch_size, emb_size=emb_size, img_size=img_size)
+
+        layer = nn.TransformerEncoderLayer(d_model=emb_size, nhead=num_heads)
+        self.transformer = nn.TransformerEncoder(layer, num_layers=num_layers)
+
+        self.to_cls_token = nn.Identity()
+        
+        self.embed_shape = feature_size
+
+        self.mlp_head = nn.Sequential(
+            nn.LayerNorm(emb_size),
+            nn.Linear(emb_size, self.embed_shape)
+        )
+
+    def forward(self, x):
+        x = self.patch_embedding(x)
+        cls_token = self.to_cls_token(torch.mean(x, dim=1))  # Using mean pooling as representation
+        x = self.transformer(x)
+        x = x.mean(dim=1)  # Pooling over the sequence dimension
+        x = self.mlp_head(x + cls_token)
+        return x
+
 
 class ObservationEncoder(nn.Module):
     def __init__(self, obs_shape=(3, 64, 64), depth=32, stride=2, activation=nn.ReLU):
