@@ -16,9 +16,9 @@ class Dreamer:
         self,
         agent: AgentModel,
         model_lr=6e-4,
-        imitator_lr=1e-4,
-        action_lr=8e-5,
-        value_lr=8e-5,
+        imitator_lr=8e-5,
+        action_lr=1e-4,
+        value_lr=1e-4,
         discount=0.99,
         discount_lambda=0.95,
         horizon=15,
@@ -127,16 +127,20 @@ class Dreamer:
         imitator_pred = self.agent.imitator_decoder(
             torch.cat((posterior.stoch, imitator_state), dim=-1)
         )
-        normal_actions = torch.atanh(torch.clamp(actions, -0.9999, 0.9999))
-        imitator_loss = -torch.mean(
-            imitator_pred.dist.base_dist.base_dist.log_prob(normal_actions)
-        )
+
+        imitator_loss = imitator_pred.log_prob(torch.clamp(actions, -0.9999, 0.9999))
+        mask = torch.ones_like(imitator_loss)
+        mask[:20] = 0
+        imitator_loss = -torch.mean(imitator_loss[mask > 0])
+
         # TODO: also add pcont
         kl_div = torch.maximum(
             torch.mean(td.kl_divergence(posterior_dist, prior_dist)),
             torch.tensor(self.free_nats, dtype=torch.float32, device=self.device),
         )  # to prevent penalize small KL divergence
-        model_loss = image_loss + imitator_loss + reward_loss + self.kl_beta * kl_div
+        model_loss = (
+            image_loss + 0.1 * imitator_loss + reward_loss + self.kl_beta * kl_div
+        )
 
         # produce a gradient-free posterior for action network
         with torch.no_grad():
